@@ -17,22 +17,15 @@ Features
 Installation
 Clone the repository:
 
-bash
-Copy
-Edit
 git clone https://github.com/Abraxas618/TetraCrypt/blob/main/tetracrypt.py
 cd tetrahedral-encryption
 Install dependencies (only numpy is required):
 
-bash
-Copy
-Edit
 pip install numpy
 Usage
 Encryption & Decryption Example
-python
-Copy
-Edit
+
+
 from tetra_cipher import encrypt_message, decrypt_message
 
 plaintext = b"Hello, Tetra Encryption!"
@@ -45,6 +38,7 @@ print("Encrypted (hex):", encrypted.hex())
 # Decrypt the message
 decrypted = decrypt_message(encrypted, passphrase)
 print("Decrypted:", decrypted.decode())
+
 📌 Important: The same passphrase must be used for both encryption and decryption.
 
 How It Works
