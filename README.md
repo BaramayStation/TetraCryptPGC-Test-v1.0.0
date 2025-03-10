@@ -19,9 +19,11 @@ Clone the repository:
 
 git clone https://github.com/Abraxas618/TetraCrypt/blob/main/tetracrypt.py
 cd tetrahedral-encryption
+
 Install dependencies (only numpy is required):
 
 pip install numpy
+
 Usage
 Encryption & Decryption Example
 
