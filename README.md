@@ -20,7 +20,7 @@ Clone the repository:
 bash
 Copy
 Edit
-git clone https://github.com/YOUR_USERNAME/tetrahedral-encryption.git
+git clone https://github.com/Abraxas618/TetraCrypt/blob/main/tetracrypt.py
 cd tetrahedral-encryption
 Install dependencies (only numpy is required):
 
