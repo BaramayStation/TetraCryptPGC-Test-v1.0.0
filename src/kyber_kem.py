@@ -2,9 +2,9 @@ import os
 import secrets
 import hashlib
 import hmac
+import json
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives.kdf.concatkdf import ConcatKDFHash
 from cryptography.hazmat.primitives import hashes
 from cffi import FFI
 
@@ -19,11 +19,11 @@ ffi.cdef("""
     void PQCLEAN_KYBER1024_CLEAN_dec(unsigned char *ss, const unsigned char *ct, const unsigned char *sk);
 """)
 
-# Constants from PQCLEAN
+# Constants
 KYBER_PUBLICKEYBYTES = 1568
 KYBER_SECRETKEYBYTES = 3168
 KYBER_CIPHERTEXTBYTES = 1568
-SHARED_SECRET_BYTES = 32  # Standard Kyber shared secret length
+SHARED_SECRET_BYTES = 32  # Kyber shared secret size
 
 def zeroize_memory(data):
     """Securely overwrite sensitive data in memory to prevent side-channel attacks."""
@@ -37,7 +37,7 @@ def secure_random_bytes(length: int):
 def hkdf_expand(shared_secret, salt=b"", info=b"TetraPQ-KDF", output_length=64):
     """
     HKDF (HMAC-based Key Derivation Function) for high-entropy key expansion.
-    - NIST SP 800-56C (RFC 5869)
+    - Follows NIST SP 800-56C (RFC 5869)
     """
     hkdf = HKDF(
         algorithm=hashes.SHA512(),
@@ -47,21 +47,8 @@ def hkdf_expand(shared_secret, salt=b"", info=b"TetraPQ-KDF", output_length=64):
     )
     return hkdf.derive(shared_secret)
 
-def aes_256_kdf(shared_secret, salt=b"", iterations=100000):
-    """
-    AES-256-based key derivation function as a secondary secure option.
-    - Based on PBKDF2 (RFC 8018, NIST SP 800-132)
-    """
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=64,
-        salt=salt,
-        iterations=iterations,
-    )
-    return kdf.derive(shared_secret)
-
 def kyber_keygen():
-    """Generate a Kyber-1024 key pair securely with enhanced entropy."""
+    """Generate a Kyber-1024 key pair securely."""
     pk = ffi.new(f"unsigned char[{KYBER_PUBLICKEYBYTES}]")
     sk = ffi.new(f"unsigned char[{KYBER_SECRETKEYBYTES}]")
     
@@ -104,36 +91,56 @@ def kyber_decapsulate(ciphertext, secret_key):
     return shared_secret
 
 def verify_key_exchange(shared_secret_A, shared_secret_B):
-    """Confirm key exchange integrity using HMAC for explicit key confirmation."""
+    """Confirm key exchange integrity using HMAC-based key confirmation."""
     confirmation_tag_A = hmac.new(shared_secret_A, b"TetraCrypt Confirmation", hashlib.sha512).digest()
     confirmation_tag_B = hmac.new(shared_secret_B, b"TetraCrypt Confirmation", hashlib.sha512).digest()
     return hmac.compare_digest(confirmation_tag_A, confirmation_tag_B)
 
+def multiparty_key_exchange(participants=3):
+    """
+    Secure multi-party post-quantum key exchange using Kyber-1024.
+    Each participant generates a key pair, then shares secrets securely.
+    """
+    keys = {}
+    secrets = {}
+
+    # Step 1: Generate key pairs for all participants
+    for i in range(participants):
+        pk, sk = kyber_keygen()
+        keys[i] = {"public": pk, "private": sk}
+
+    # Step 2: Each participant encrypts a shared secret with the next participant’s public key
+    for i in range(participants):
+        next_i = (i + 1) % participants  # Circular exchange
+        ct, ss = kyber_encapsulate(keys[next_i]["public"])
+        secrets[i] = {"ciphertext": ct, "shared_secret": ss}
+
+    # Step 3: Each participant decapsulates the received shared secret
+    final_secrets = {}
+    for i in range(participants):
+        final_secrets[i] = kyber_decapsulate(secrets[i]["ciphertext"], keys[i]["private"])
+
+    # Step 4: Verify key consistency across all participants
+    reference_secret = final_secrets[0]
+    for i in range(1, participants):
+        if not verify_key_exchange(reference_secret, final_secrets[i]):
+            raise ValueError("Multi-party key exchange failed: Secrets do not match")
+
+    # Step 5: Derive final shared key using HKDF
+    final_derived_key = hkdf_expand(reference_secret)
+
+    # Securely erase temporary key material
+    for i in range(participants):
+        zeroize_memory(final_secrets[i])
+        zeroize_memory(keys[i]["private"])
+
+    return final_derived_key
+
 if __name__ == "__main__":
     try:
-        print("Generating Kyber key pair...")
-        alice_pk, alice_sk = kyber_keygen()
-
-        print("Encapsulating shared secret...")
-        ciphertext, shared_secret_bob = kyber_encapsulate(alice_pk)
-
-        print("Decapsulating shared secret...")
-        shared_secret_alice = kyber_decapsulate(ciphertext, alice_sk)
-
-        if not verify_key_exchange(shared_secret_alice, shared_secret_bob):
-            raise ValueError("Key exchange failed: Shared secrets do not match")
-
-        # Key Derivation using HKDF & AES-256
-        derived_key_hkdf = hkdf_expand(shared_secret_alice)
-        derived_key_aes = aes_256_kdf(shared_secret_alice)
-
-        print("Kyber Key Exchange Successful")
-        print(f"Derived Key (HKDF): {derived_key_hkdf.hex()}")
-        print(f"Derived Key (AES-256): {derived_key_aes.hex()}")
-
-        # Securely erase memory
-        zeroize_memory(shared_secret_alice)
-        zeroize_memory(shared_secret_bob)
+        print("Performing Multi-Party Kyber Key Exchange (MPKE)...")
+        final_shared_key = multiparty_key_exchange(participants=3)
+        print(f"Final Multi-Party Derived Key: {final_shared_key.hex()}")
 
     except Exception as e:
         print(f"Error: {e}")
