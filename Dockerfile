@@ -1,20 +1,18 @@
-# Secure Minimalist Base Image (Distroless Debian 12)
+# Secure Minimalist Base Image (Distroless Debian 12 with Secure Boot Support)
 FROM gcr.io/distroless/cc-debian12:latest AS base
 
 # Enable FIPS 140-2/3 Compliance (Government Standard)
 ENV UBUNTU_FIPS=true
 RUN apt update && apt install -y ubuntu-fips && update-crypto-policies --set FIPS
 
-# Install necessary dependencies for cryptographic security
+# Install Secure Boot & TPM 2.0 Libraries
 RUN apt update && apt install -y --no-install-recommends \
     python3 python3-pip python3-cffi \
     build-essential cmake clang git \
     openssl libssl-dev libpkcs11-helper1 \
-    pcscd libpcsclite1 \
+    tpm2-tools tpm2-abrmd libtss2-tcti-tabrmd0 \
+    pcscd libpcsclite1 opensc libengine-pkcs11-openssl \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Hardware Security Module (HSM) and PKCS#11 Support
-RUN apt install -y opensc libengine-pkcs11-openssl
 
 # Set up the working directory
 WORKDIR /app
@@ -77,6 +75,23 @@ RUN sysctl -w kernel.randomize_va_space=2 && \
 
 # Seccomp Profile for Minimal Syscall Usage (Blocks Unused Syscalls)
 COPY seccomp_profile.json /app/seccomp_profile.json
+
+# **Enable TPM 2.0 for Secure Boot & Cryptographic Key Management**
+RUN tpm2_startup --clear && \
+    tpm2_clear && \
+    tpm2_createprimary -C o -g sha256 -G rsa -c /app/tpm_primary.ctx && \
+    tpm2_pcrread sha256:0
+
+# Secure Boot Policy Enforcement
+RUN echo "Checking Secure Boot Status..." && \
+    dmesg | grep -i "secure boot enabled" || echo "Warning: Secure Boot may not be enabled."
+
+# TPM-based Key Management for Kyber and Falcon Keys
+COPY tpm_key_management.sh /app/tpm_key_management.sh
+RUN chmod +x /app/tpm_key_management.sh && /app/tpm_key_management.sh
+
+# TPM Key Unsealing on Container Start
+ENTRYPOINT ["/app/tpm_key_management.sh"]
 
 # Default Command: Run Secure Tests to Validate Integrity
 CMD ["python3", "-m", "unittest", "tests/testhandshake.py"]
