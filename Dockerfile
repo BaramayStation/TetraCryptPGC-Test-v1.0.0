@@ -1,17 +1,19 @@
-# Secure Minimalist Base Image (Distroless Debian 12 with Secure Boot Support)
+# Secure Minimalist Base Image with FIPS + TPM + SGX + SEV
 FROM gcr.io/distroless/cc-debian12:latest AS base
 
-# Enable FIPS 140-2/3 Compliance (Government Standard)
+# Enable FIPS 140-3 Compliance (Government Security Standards)
 ENV UBUNTU_FIPS=true
 RUN apt update && apt install -y ubuntu-fips && update-crypto-policies --set FIPS
 
-# Install Secure Boot & TPM 2.0 Libraries
+# Install Secure Boot, TPM 2.0, Intel SGX, and AMD SEV Support
 RUN apt update && apt install -y --no-install-recommends \
     python3 python3-pip python3-cffi \
     build-essential cmake clang git \
     openssl libssl-dev libpkcs11-helper1 \
     tpm2-tools tpm2-abrmd libtss2-tcti-tabrmd0 \
     pcscd libpcsclite1 opensc libengine-pkcs11-openssl \
+    intel-sgx-psw intel-sgx-sdk \
+    amd-sev-tool \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up the working directory
@@ -73,24 +75,29 @@ RUN sysctl -w kernel.randomize_va_space=2 && \
     sysctl -w kernel.dmesg_restrict=1 && \
     sysctl -w kernel.kptr_restrict=2
 
-# Seccomp Profile for Minimal Syscall Usage (Blocks Unused Syscalls)
-COPY seccomp_profile.json /app/seccomp_profile.json
-
 # **Enable TPM 2.0 for Secure Boot & Cryptographic Key Management**
 RUN tpm2_startup --clear && \
     tpm2_clear && \
     tpm2_createprimary -C o -g sha256 -G rsa -c /app/tpm_primary.ctx && \
     tpm2_pcrread sha256:0
 
+# **Enable Intel SGX & AMD SEV for Confidential Computing**
+RUN echo "Initializing Intel SGX & AMD SEV for Secure Enclave Processing" && \
+    sgx_enable && sev_verify
+
+# **Multi-Party Computation (MPC) for Secure Key Sharing**
+COPY mpc_key_sharing.py /app/mpc_key_sharing.py
+RUN chmod +x /app/mpc_key_sharing.py && python3 /app/mpc_key_sharing.py
+
 # Secure Boot Policy Enforcement
 RUN echo "Checking Secure Boot Status..." && \
     dmesg | grep -i "secure boot enabled" || echo "Warning: Secure Boot may not be enabled."
 
-# TPM-based Key Management for Kyber and Falcon Keys
+# **TPM-Based Key Management for Kyber and Falcon**
 COPY tpm_key_management.sh /app/tpm_key_management.sh
 RUN chmod +x /app/tpm_key_management.sh && /app/tpm_key_management.sh
 
-# TPM Key Unsealing on Container Start
+# Secure TPM Key Unsealing on Container Start
 ENTRYPOINT ["/app/tpm_key_management.sh"]
 
 # Default Command: Run Secure Tests to Validate Integrity
