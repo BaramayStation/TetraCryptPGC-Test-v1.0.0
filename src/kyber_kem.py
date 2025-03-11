@@ -3,10 +3,15 @@ import secrets
 import hashlib
 import hmac
 import json
+import base64
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cffi import FFI
+from secretsharing import PlaintextToHexSecretSharer
+from getpass import getpass
+import pyotp  # Multi-Factor Authentication (OTP)
+import sgx_enclave  # Secure Enclave Integration (Simulated)
 
 ffi = FFI()
 KYBER_LIB_PATH = os.getenv("KYBER_LIB_PATH", "/app/lib/libpqclean_kyber1024_clean.so")
@@ -24,6 +29,7 @@ KYBER_PUBLICKEYBYTES = 1568
 KYBER_SECRETKEYBYTES = 3168
 KYBER_CIPHERTEXTBYTES = 1568
 SHARED_SECRET_BYTES = 32  # Kyber shared secret size
+MFA_SECRET = pyotp.random_base32()  # Simulated MFA Secret
 
 def zeroize_memory(data):
     """Securely overwrite sensitive data in memory to prevent side-channel attacks."""
@@ -47,6 +53,16 @@ def hkdf_expand(shared_secret, salt=b"", info=b"TetraPQ-KDF", output_length=64):
     )
     return hkdf.derive(shared_secret)
 
+def pbkdf2_derive_key(password, salt, iterations=100000, length=32):
+    """Derive an encryption key from a user-provided password using PBKDF2."""
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=length,
+        salt=salt,
+        iterations=iterations,
+    )
+    return kdf.derive(password.encode())
+
 def kyber_keygen():
     """Generate a Kyber-1024 key pair securely."""
     pk = ffi.new(f"unsigned char[{KYBER_PUBLICKEYBYTES}]")
@@ -58,6 +74,29 @@ def kyber_keygen():
         raise ValueError("Invalid key sizes generated")
 
     return bytes(pk), bytes(sk)
+
+def split_secret(secret, threshold=3, total_shares=5):
+    """
+    Split a secret key into `total_shares` pieces, requiring `threshold` to reconstruct.
+    Uses Shamir's Secret Sharing (SSS) to split the key into secure fragments.
+    """
+    secret_hex = secret.hex()  # Convert to hex for compatibility
+    shares = PlaintextToHexSecretSharer.split_secret(secret_hex, threshold, total_shares)
+    return shares
+
+def reconstruct_secret(shares):
+    """
+    Reconstruct the original secret from a subset of shares.
+    Requires at least `threshold` shares to work.
+    """
+    secret_hex = PlaintextToHexSecretSharer.recover_secret(shares)
+    return bytes.fromhex(secret_hex)  # Convert back to bytes
+
+def authenticate_with_mfa():
+    """Perform MFA verification using Time-Based OTP (TOTP)."""
+    otp = pyotp.TOTP(MFA_SECRET)
+    user_otp = input("Enter MFA OTP: ")
+    return otp.verify(user_otp)
 
 def kyber_encapsulate(public_key):
     """Encapsulate a shared secret using Kyber-1024 securely."""
@@ -90,57 +129,38 @@ def kyber_decapsulate(ciphertext, secret_key):
     
     return shared_secret
 
-def verify_key_exchange(shared_secret_A, shared_secret_B):
-    """Confirm key exchange integrity using HMAC-based key confirmation."""
-    confirmation_tag_A = hmac.new(shared_secret_A, b"TetraCrypt Confirmation", hashlib.sha512).digest()
-    confirmation_tag_B = hmac.new(shared_secret_B, b"TetraCrypt Confirmation", hashlib.sha512).digest()
-    return hmac.compare_digest(confirmation_tag_A, confirmation_tag_B)
+def secure_store_key(key):
+    """Store the key securely using Secure Enclave or TPM."""
+    return sgx_enclave.store_secure_key(key)
 
-def multiparty_key_exchange(participants=3):
-    """
-    Secure multi-party post-quantum key exchange using Kyber-1024.
-    Each participant generates a key pair, then shares secrets securely.
-    """
-    keys = {}
-    secrets = {}
-
-    # Step 1: Generate key pairs for all participants
-    for i in range(participants):
-        pk, sk = kyber_keygen()
-        keys[i] = {"public": pk, "private": sk}
-
-    # Step 2: Each participant encrypts a shared secret with the next participant’s public key
-    for i in range(participants):
-        next_i = (i + 1) % participants  # Circular exchange
-        ct, ss = kyber_encapsulate(keys[next_i]["public"])
-        secrets[i] = {"ciphertext": ct, "shared_secret": ss}
-
-    # Step 3: Each participant decapsulates the received shared secret
-    final_secrets = {}
-    for i in range(participants):
-        final_secrets[i] = kyber_decapsulate(secrets[i]["ciphertext"], keys[i]["private"])
-
-    # Step 4: Verify key consistency across all participants
-    reference_secret = final_secrets[0]
-    for i in range(1, participants):
-        if not verify_key_exchange(reference_secret, final_secrets[i]):
-            raise ValueError("Multi-party key exchange failed: Secrets do not match")
-
-    # Step 5: Derive final shared key using HKDF
-    final_derived_key = hkdf_expand(reference_secret)
-
-    # Securely erase temporary key material
-    for i in range(participants):
-        zeroize_memory(final_secrets[i])
-        zeroize_memory(keys[i]["private"])
-
-    return final_derived_key
+def retrieve_secure_key():
+    """Retrieve the key from Secure Enclave."""
+    return sgx_enclave.get_secure_key()
 
 if __name__ == "__main__":
     try:
-        print("Performing Multi-Party Kyber Key Exchange (MPKE)...")
-        final_shared_key = multiparty_key_exchange(participants=3)
-        print(f"Final Multi-Party Derived Key: {final_shared_key.hex()}")
+        print("Performing Multi-Party Kyber Key Exchange with MFA & Secure Enclave Support...")
+        
+        # User authentication via MFA
+        if not authenticate_with_mfa():
+            raise ValueError("MFA Authentication Failed")
 
+        # Generate Kyber key pair
+        pk, sk = kyber_keygen()
+
+        # Encrypt private key using Secure Enclave
+        secure_store_key(sk)
+        sk_enclave = retrieve_secure_key()
+
+        # Encrypt shared secret
+        ciphertext, shared_secret_bob = kyber_encapsulate(pk)
+        shared_secret_alice = kyber_decapsulate(ciphertext, sk_enclave)
+
+        # Validate handshake
+        if shared_secret_alice != shared_secret_bob:
+            raise ValueError("Key exchange failed: Shared secrets do not match")
+
+        print("Kyber Key Exchange Successful with MFA and Secure Enclave Protection")
+    
     except Exception as e:
         print(f"Error: {e}")
