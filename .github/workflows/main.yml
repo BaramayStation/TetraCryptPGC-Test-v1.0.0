@@ -1,10 +1,12 @@
-name: TetraCrypt CI/CD Workflow
+name: TetraCrypt CI-CD Workflow
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   build_and_test:
@@ -32,16 +34,8 @@ jobs:
         run: |
           python tetracrypt.py benchmark > benchmark_results.txt
 
-      - name: Upload Benchmark Report
+      - name: Upload Benchmark Results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark_results
           path: benchmark_results.txt
-
----
-
-### **✅ Apply This Correction:**
-
-1. Open and edit your file:
-```sh
-nano .github/workflows/main.yml
