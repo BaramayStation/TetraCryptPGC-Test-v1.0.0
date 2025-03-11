@@ -1,10 +1,18 @@
 import os
+import hashlib
+import secrets
 from cffi import FFI
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
 
+# Initialize FFI
 ffi = FFI()
+
+# Load Kyber & Falcon Libraries
 kyber_lib = ffi.dlopen("./libpqclean_kyber1024_clean.so")
 falcon_lib = ffi.dlopen("./libpqclean_falcon1024_clean.so")
 
+# Define C functions
 ffi.cdef("""
     void PQCLEAN_KYBER1024_CLEAN_keypair(unsigned char *pk, unsigned char *sk);
     void PQCLEAN_KYBER1024_CLEAN_enc(unsigned char *ct, unsigned char *ss, const unsigned char *pk);
@@ -18,87 +26,127 @@ ffi.cdef("""
 KYBER_PUBLICKEYBYTES = 1568
 KYBER_SECRETKEYBYTES = 3168
 KYBER_CIPHERTEXTBYTES = 1568
-FALCON_PUBLICKEYBYTES = 1281
-FALCON_SECRETKEYBYTES = 2305
+FALCON_PUBLICKEYBYTES = 1792
+FALCON_SECRETKEYBYTES = 2304
 FALCON_SIGNATUREBYTES = 1280
+SHARED_SECRET_BYTES = 32  # Standard Kyber shared secret length
+
+# ---------------- Secure Functions ----------------
+
+def secure_erase(buffer):
+    """Securely erase memory to prevent side-channel attacks."""
+    for i in range(len(buffer)):
+        buffer[i] = secrets.randbits(8)
+
+# ---------------- Key Generation ----------------
 
 def pq_xdh_keygen():
-    """Generate Kyber-1024 keypair."""
-    pk = ffi.new("unsigned char[{}]".format(KYBER_PUBLICKEYBYTES))
-    sk = ffi.new("unsigned char[{}]".format(KYBER_SECRETKEYBYTES))
+    """Generate a Kyber-1024 keypair."""
+    pk = ffi.new(f"unsigned char[{KYBER_PUBLICKEYBYTES}]")
+    sk = ffi.new(f"unsigned char[{KYBER_SECRETKEYBYTES}]")
     kyber_lib.PQCLEAN_KYBER1024_CLEAN_keypair(pk, sk)
-    if len(bytes(pk)) != KYBER_PUBLICKEYBYTES:
-        raise ValueError("Invalid public key size")
     return bytes(pk), bytes(sk)
+
+def falcon_keygen():
+    """Generate a Falcon-1024 keypair."""
+    pk = ffi.new(f"unsigned char[{FALCON_PUBLICKEYBYTES}]")
+    sk = ffi.new(f"unsigned char[{FALCON_SECRETKEYBYTES}]")
+    falcon_lib.PQCLEAN_FALCON1024_CLEAN_keypair(pk, sk)
+    return bytes(pk), bytes(sk)
+
+# ---------------- Kyber Encapsulation/Decapsulation ----------------
 
 def encapsulate_key(public_key):
     """Encapsulate a shared secret with Kyber-1024."""
-    if len(public_key) != KYBER_PUBLICKEYBYTES:
-        raise ValueError("Invalid public key size")
-    ct = ffi.new("unsigned char[{}]".format(KYBER_CIPHERTEXTBYTES))
-    ss = ffi.new("unsigned char[32]")
+    ct = ffi.new(f"unsigned char[{KYBER_CIPHERTEXTBYTES}]")
+    ss = ffi.new(f"unsigned char[{SHARED_SECRET_BYTES}]")
     kyber_lib.PQCLEAN_KYBER1024_CLEAN_enc(ct, ss, public_key)
     return bytes(ct), bytes(ss)
 
 def decapsulate_key(ciphertext, secret_key):
     """Decapsulate a shared secret with Kyber-1024."""
-    if len(ciphertext) != KYBER_CIPHERTEXTBYTES or len(secret_key) != KYBER_SECRETKEYBYTES:
-        raise ValueError("Invalid ciphertext or secret key size")
-    ss = ffi.new("unsigned char[32]")
+    ss = ffi.new(f"unsigned char[{SHARED_SECRET_BYTES}]")
     kyber_lib.PQCLEAN_KYBER1024_CLEAN_dec(ss, ciphertext, secret_key)
     return bytes(ss)
 
-def falcon_keygen():
-    """Generate Falcon-1024 keypair."""
-    pk = ffi.new("unsigned char[{}]".format(FALCON_PUBLICKEYBYTES))
-    sk = ffi.new("unsigned char[{}]".format(FALCON_SECRETKEYBYTES))
-    falcon_lib.PQCLEAN_FALCON1024_CLEAN_keypair(pk, sk)
-    if len(bytes(pk)) != FALCON_PUBLICKEYBYTES or len(bytes(sk)) != FALCON_SECRETKEYBYTES:
-        raise ValueError("Invalid Falcon key sizes")
-    return bytes(pk), bytes(sk)
+# ---------------- Signature Functions ----------------
 
 def sign_shared_secret(shared_secret, falcon_sk):
-    """Sign a shared secret with Falcon-1024."""
-    if len(falcon_sk) != FALCON_SECRETKEYBYTES:
-        raise ValueError("Invalid Falcon secret key size")
-    sig = ffi.new("unsigned char[{}]".format(FALCON_SIGNATUREBYTES))
+    """Sign a shared secret with Falcon-1024 after hashing."""
+    sig = ffi.new(f"unsigned char[{FALCON_SIGNATUREBYTES}]")
     siglen = ffi.new("size_t *")
-    falcon_lib.PQCLEAN_FALCON1024_CLEAN_sign(sig, siglen, shared_secret, len(shared_secret), falcon_sk)
+    
+    # Hash secret before signing (avoiding side-channel leakage)
+    hashed_secret = hashlib.sha3_512(shared_secret).digest()
+
+    falcon_lib.PQCLEAN_FALCON1024_CLEAN_sign(sig, siglen, hashed_secret, len(hashed_secret), falcon_sk)
     return bytes(sig)[:siglen[0]]
 
 def verify_signature(shared_secret, signature, falcon_pk):
-    """Verify a Falcon-1024 signature."""
-    if len(falcon_pk) != FALCON_PUBLICKEYBYTES:
-        raise ValueError("Invalid Falcon public key size")
-    result = falcon_lib.PQCLEAN_FALCON1024_CLEAN_verify(signature, len(signature), shared_secret, len(shared_secret), falcon_pk)
+    """Verify a Falcon-1024 signature using a hashed shared secret."""
+    hashed_secret = hashlib.sha3_512(shared_secret).digest()
+    result = falcon_lib.PQCLEAN_FALCON1024_CLEAN_verify(signature, len(signature), hashed_secret, len(hashed_secret), falcon_pk)
     return result == 0
 
-def pq_xdh_handshake_mutual():
-    """Perform a mutual-authentication post-quantum XDH handshake."""
-    alice_pk_kyber, alice_sk_kyber = pq_xdh_keygen()
-    alice_pk_falcon, alice_sk_falcon = falcon_keygen()
-    bob_pk_kyber, bob_sk_kyber = pq_xdh_keygen()
-    bob_pk_falcon, bob_sk_falcon = falcon_keygen()
+# ---------------- Hybrid Key Derivation ----------------
+
+def derive_final_shared_secret(raw_secret, transcript):
+    """Use HKDF to derive a secure final key."""
+    hkdf = HKDF(
+        algorithm=hashes.SHA3_512(),
+        length=64,  # Generate 512-bit session key
+        salt=None,
+        info=transcript,
+    )
+    return hkdf.derive(raw_secret)
+
+# ---------------- Multi-Party Key Exchange ----------------
+
+def pq_xdh_handshake_multiparty(participants=3):
+    """Perform a post-quantum secure handshake for multiple parties (>=3)."""
+    keys = {}
     
-    ct_bob, ss_bob = encapsulate_key(alice_pk_kyber)
-    ss_alice = decapsulate_key(ct_bob, alice_sk_kyber)
+    # Generate keys for all participants
+    for i in range(participants):
+        keys[f"pk_kyber_{i}"], keys[f"sk_kyber_{i}"] = pq_xdh_keygen()
+        keys[f"pk_falcon_{i}"], keys[f"sk_falcon_{i}"] = falcon_keygen()
+
+    shared_secrets = []
     
-    alice_sig = sign_shared_secret(ss_alice, alice_sk_falcon)
-    bob_sig = sign_shared_secret(ss_bob, bob_sk_falcon)
-    
-    valid_alice = verify_signature(ss_bob, alice_sig, alice_pk_falcon)
-    valid_bob = verify_signature(ss_alice, bob_sig, bob_pk_falcon)
-    
-    if not (valid_alice and valid_bob):
-        raise ValueError("Handshake failed: Authentication invalid")
-    if ss_alice != ss_bob:
-        raise ValueError("Handshake failed: Shared secrets mismatch")
-    
-    return True, ss_alice, ss_bob
+    for i in range(participants):
+        next_i = (i + 1) % participants  # Circular exchange
+        
+        # Encapsulate with next participant's key
+        ct, ss_sender = encapsulate_key(keys[f"pk_kyber_{next_i}"])
+        ss_receiver = decapsulate_key(ct, keys[f"sk_kyber_{next_i}"])
+        
+        if ss_sender != ss_receiver:
+            raise ValueError(f"Shared secret mismatch between {i} and {next_i}")
+
+        shared_secrets.append(ss_sender)
+
+    # Generate transcript hash (binds all public keys)
+    transcript = hashlib.sha3_512(b"".join(keys[f"pk_kyber_{i}"] for i in range(participants))).digest()
+
+    # Sign transcript for authentication
+    signatures = {i: sign_shared_secret(transcript, keys[f"sk_falcon_{i}"]) for i in range(participants)}
+
+    # Verify signatures
+    for i in range(participants):
+        if not verify_signature(transcript, signatures[i], keys[f"pk_falcon_{i}"]):
+            raise ValueError(f"Signature verification failed for participant {i}")
+
+    # Final shared key derived via HKDF
+    final_secret = derive_final_shared_secret(b"".join(shared_secrets), transcript)
+
+    return True, final_secret
+
+# ---------------- Main Execution ----------------
 
 if __name__ == "__main__":
     try:
-        valid, ss_alice, ss_bob = pq_xdh_handshake_mutual()
-        print(f"Handshake successful: {valid}")
+        valid, shared_key = pq_xdh_handshake_multiparty()
+        print(f"Multi-party handshake successful: {valid}")
+        print(f"Derived shared key: {shared_key.hex()}")
     except ValueError as e:
         print(f"Error: {e}")
