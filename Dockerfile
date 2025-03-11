@@ -30,8 +30,10 @@ RUN mkdir build && cd build && \
     cp ./crypto_kem/kyber1024/clean/libpqclean_kyber1024_clean.so /app/lib/ && \
     cp ./crypto_sign/falcon-1024/clean/libpqclean_falcon1024_clean.so /app/lib/
 
+# Set environment variables for library paths
 ENV KYBER_LIB_PATH=/app/lib/libpqclean_kyber1024_clean.so
 ENV FALCON_LIB_PATH=/app/lib/libpqclean_falcon1024_clean.so
+ENV LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
 
 # Copy the application and test files
 COPY ./src/handshake.py /app/
@@ -43,10 +45,7 @@ COPY ./requirements.txt /app/
 # Install Python dependencies
 RUN pip3 install --no-cache-dir -r /app/requirements.txt
 
-# Set the library path environment variable so Python can find the .so files
-ENV LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
-
-# Set the working directory back to /app for running the script
+# Set the working directory for running the script
 WORKDIR /app
 
 # Set the entrypoint to run the tests by default
