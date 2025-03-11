@@ -115,8 +115,53 @@ TetraCryptPGC/
 │   └── init.py     # Python module initialization
 ├── tests/              # Test suite directory
 │   └── testhandshake.py  # Unit tests for validation
-### Testing
-### Generating KATs
-To generate Known Answer Tests for the TetraPQ-XDH handshake:
-```bash
+# Testing
+This section explains how to test the TetraCryptPGC protocol, including generating Known Answer Tests (KATs) to verify the TetraPQ-XDH handshake works as expected.
+### Generating KATs for TetraPQ-XDH: For Enterprise Users
+New to TetraCryptPGC? This guide helps you generate a KAT file to confirm our post-quantum key exchange protocol works—no prior experience needed! KATs are test files that show the exact outputs of the protocol,
+
+#### What You’ll Need
+- A Linux computer (e.g., Ubuntu) or a VM/cloud instance (Windows/Mac users can use WSL2 or a VM).
+- Internet access.
+- 15-20 minutes for setup.
+
+#### Steps
+
+1. **Get the Code**  
+   Open a terminal and run:  
+   ```bash
+   git clone https://github.com/Abraxas618/TetraCryptPGC.git
+   cd TetraCryptPGC
+
+   Note: If “git” isn’t found, install it:  
+sudo apt update && sudo apt install -y git
+
+Install Podman
+Podman runs our code in a pre-set environment:  
+
+sudo apt update
+sudo apt install -y podman
+
+Build the Environment
+Create the TetraCryptPGC container:
+
+podman build -t tetrapgc-nist .
+
+Wait 5-15 minutes—it’s ready when you see “Successfully tagged.”
+
+Generate the KAT File  
+
+mkdir -p KAT
 podman run --rm -v $(pwd)/KAT:/app/KAT tetrapgc-nist python3 generate_kat.py
+
+Check the result:  
+
+cat KAT/tetrapq_xdh_kat.txt
+
+You’ll see keys, secrets, and verification results.
+
+Next Steps
+Save KAT/tetrapq_xdh_kat.txt for your records or audits.
+Troubleshooting
+“No such image”: Run the build command again.  
+No output file: Ensure KAT/ exists (mkdir -p KAT) and retry.  
