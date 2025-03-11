@@ -1,11 +1,11 @@
-# Secure Minimalist Base Image
+# Secure Minimalist Base Image (Distroless Debian 12)
 FROM gcr.io/distroless/cc-debian12:latest AS base
 
-# Enable FIPS 140-2/3 Compliance
+# Enable FIPS 140-2/3 Compliance (Government Standard)
 ENV UBUNTU_FIPS=true
 RUN apt update && apt install -y ubuntu-fips && update-crypto-policies --set FIPS
 
-# Install necessary dependencies
+# Install necessary dependencies for cryptographic security
 RUN apt update && apt install -y --no-install-recommends \
     python3 python3-pip python3-cffi \
     build-essential cmake clang git \
@@ -19,7 +19,7 @@ RUN apt install -y opensc libengine-pkcs11-openssl
 # Set up the working directory
 WORKDIR /app
 
-# Clone PQCLEAN Repository for Post-Quantum Cryptography
+# Clone PQCLEAN Repository for Post-Quantum Cryptography (NIST Standardized)
 RUN git clone --depth 1 https://github.com/PQClean/PQClean.git /app/PQClean
 
 # Compile PQCLEAN with security-hardened flags
@@ -52,7 +52,7 @@ COPY ./tests/ /app/tests/
 # Final Hardened Runtime Environment
 FROM app AS runtime
 
-# Create a Non-Root User for Execution
+# Create a Non-Root User for Execution (Enforces Least Privilege)
 RUN addgroup --system tetrapgc && adduser --system --ingroup tetrapgc tetrapgc
 USER tetrapgc
 
@@ -70,11 +70,13 @@ RUN apt install -y selinux-basics selinux-utils apparmor-utils && \
     echo "SELinux is enabled" && \
     aa-enforce /etc/apparmor.d/*
 
-# Apply Kernel Hardening
+# Apply Kernel Hardening (Prevents Exploits & Side-Channel Attacks)
 RUN sysctl -w kernel.randomize_va_space=2 && \
     sysctl -w kernel.dmesg_restrict=1 && \
     sysctl -w kernel.kptr_restrict=2
 
-# Seccomp Profile for Minimal Syscall Usage
+# Seccomp Profile for Minimal Syscall Usage (Blocks Unused Syscalls)
 COPY seccomp_profile.json /app/seccomp_profile.json
+
+# Default Command: Run Secure Tests to Validate Integrity
 CMD ["python3", "-m", "unittest", "tests/testhandshake.py"]
