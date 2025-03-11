@@ -1,0 +1,39 @@
+name: TetraCrypt CI/CD Workflow
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run Unit Tests and Security Validation
+      run: |
+        python run_tests.py
+
+    - name: Run Performance Benchmarks
+      run: |
+        python tetracrypt.py benchmark > benchmark_results.txt
+
+    - name: Upload Benchmark Results as Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark_results
+        path: benchmark_results.txt
