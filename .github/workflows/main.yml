@@ -11,29 +11,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v3
+      - name: Checkout Repository
+        uses: actions/checkout@v4  # ✅ Updated to latest version
 
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v3
-      with:
-        python-version: '3.11'
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
+      # Install required dependencies
     - name: Install Dependencies
       run: |
         pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Run Unit Tests and Security Validation
+      # Run unit tests and security validation
+    - name: Run Unit Tests
       run: |
         python run_tests.py
 
-    - name: Run Performance Benchmarks
+      # Run benchmarks to evaluate performance
+    - name: Run Benchmarks
       run: |
         python tetracrypt.py benchmark > benchmark_results.txt
 
-    - name: Upload Benchmark Results as Artifact
-      uses: actions/upload-artifact@v3
+      # Upload benchmark results artifact (latest supported version)
+    - name: Upload Benchmark Results
+      uses: actions/upload-artifact@v4
       with:
         name: benchmark_results
         path: benchmark_results.txt
