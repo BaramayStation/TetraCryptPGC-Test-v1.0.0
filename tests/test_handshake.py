@@ -1,7 +1,6 @@
 import unittest
-from handshake import pq_xdh_handshake_mutual
-from kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
-from falcon_sign import falcon_keygen, falcon_sign, falcon_verify
+from src import pq_xdh_handshake_mutual, kyber_keygen, kyber_encapsulate, kyber_decapsulate
+from src import falcon_keygen, falcon_sign, falcon_verify
 
 class TestPQXDH(unittest.TestCase):
     def test_key_generation(self):
