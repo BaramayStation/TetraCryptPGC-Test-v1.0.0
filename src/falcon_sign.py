@@ -1,7 +1,9 @@
 from cffi import FFI
+import os
 
 ffi = FFI()
-lib = ffi.dlopen("/app/lib/libpqclean_falcon1024_clean.so")  # Match Dockerfile path
+FALCON_LIB_PATH = os.getenv("FALCON_LIB_PATH", "/app/lib/libpqclean_falcon1024_clean.so")
+lib = ffi.dlopen(FALCON_LIB_PATH)
 
 # Define C functions for Falcon signing and verification
 ffi.cdef("""
@@ -44,16 +46,12 @@ def falcon_verify(message: bytes, signature: bytes, public_key: bytes) -> bool:
 
 if __name__ == "__main__":
     try:
-        # Generate keys
         pk, sk = falcon_keygen()
         print("Public Key:", pk.hex())
         print("Secret Key:", sk.hex())
-        
-        # Test signing and verification
         message = b"Post-Quantum Cryptography Test"
         signature = falcon_sign(message, sk)
         print("Signature:", signature.hex())
-        
         is_valid = falcon_verify(message, signature, pk)
         print("Signature valid:", is_valid)
     except Exception as e:
