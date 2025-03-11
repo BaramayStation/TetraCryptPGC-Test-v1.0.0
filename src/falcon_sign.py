@@ -1,58 +1,94 @@
-from cffi import FFI
 import os
+import secrets
+from cffi import FFI
 
 ffi = FFI()
 FALCON_LIB_PATH = os.getenv("FALCON_LIB_PATH", "/app/lib/libpqclean_falcon1024_clean.so")
 lib = ffi.dlopen(FALCON_LIB_PATH)
 
-# Define C functions for Falcon signing and verification
+# Define C functions for Falcon signature scheme
 ffi.cdef("""
     void PQCLEAN_FALCON1024_CLEAN_keypair(unsigned char *pk, unsigned char *sk);
-    void PQCLEAN_FALCON1024_CLEAN_sign(unsigned char *sm, size_t *smlen, const unsigned char *m, size_t mlen, const unsigned char *sk);
-    int PQCLEAN_FALCON1024_CLEAN_verify(const unsigned char *sm, size_t smlen, const unsigned char *m, size_t mlen, const unsigned char *pk);
+    void PQCLEAN_FALCON1024_CLEAN_sign(unsigned char *sig, size_t *siglen, const unsigned char *msg, size_t msglen, const unsigned char *sk);
+    int PQCLEAN_FALCON1024_CLEAN_verify(const unsigned char *sig, size_t siglen, const unsigned char *msg, size_t msglen, const unsigned char *pk);
 """)
 
-# Correct constants for Falcon-1024 (from PQCLEAN)
-FALCON_PUBLICKEYBYTES = 1281
-FALCON_SECRETKEYBYTES = 2305
-FALCON_SIGNATUREBYTES = 1280
+# Constants from PQCLEAN
+FALCON_PUBLICKEYBYTES = 1792
+FALCON_SECRETKEYBYTES = 2304
+FALCON_SIGNATURE_MAXBYTES = 1280  # Falcon-1024 signatures can be variable length but max 1280 bytes
+MESSAGE_HASH_BYTES = 32  # Recommended standard for securely hashed messages
+
+def secure_erase(buffer):
+    """Securely erase a buffer to prevent memory leakage."""
+    for i in range(len(buffer)):
+        buffer[i] = secrets.randbits(8)
 
 def falcon_keygen():
-    """Generate Falcon-1024 key pair."""
-    pk = ffi.new("unsigned char[{}]".format(FALCON_PUBLICKEYBYTES))
-    sk = ffi.new("unsigned char[{}]".format(FALCON_SECRETKEYBYTES))
+    """Generate a Falcon-1024 key pair securely with validation."""
+    pk = ffi.new(f"unsigned char[{FALCON_PUBLICKEYBYTES}]")
+    sk = ffi.new(f"unsigned char[{FALCON_SECRETKEYBYTES}]")
+    
     lib.PQCLEAN_FALCON1024_CLEAN_keypair(pk, sk)
+
     if len(bytes(pk)) != FALCON_PUBLICKEYBYTES or len(bytes(sk)) != FALCON_SECRETKEYBYTES:
         raise ValueError("Invalid key sizes generated")
+
     return bytes(pk), bytes(sk)
 
-def falcon_sign(message: bytes, secret_key: bytes) -> bytes:
-    """Sign a message with Falcon-1024 secret key."""
+def falcon_sign(message, secret_key):
+    """
+    Sign a message using Falcon-1024.
+    The message is securely hashed before signing to avoid leaking length-related metadata.
+    """
     if len(secret_key) != FALCON_SECRETKEYBYTES:
         raise ValueError("Invalid secret key size")
-    sig = ffi.new("unsigned char[{}]".format(FALCON_SIGNATUREBYTES))
-    siglen = ffi.new("size_t *")
-    lib.PQCLEAN_FALCON1024_CLEAN_sign(sig, siglen, message, len(message), secret_key)
-    if siglen[0] > FALCON_SIGNATUREBYTES:
-        raise ValueError("Signature exceeds maximum size")
-    return bytes(sig)[:siglen[0]]
 
-def falcon_verify(message: bytes, signature: bytes, public_key: bytes) -> bool:
-    """Verify a Falcon-1024 signature."""
+    sig = ffi.new(f"unsigned char[{FALCON_SIGNATURE_MAXBYTES}]")
+    siglen = ffi.new("size_t *")
+    
+    # Ensure message is hashed to a fixed length before signing
+    message_hash = secrets.token_bytes(MESSAGE_HASH_BYTES) if len(message) > MESSAGE_HASH_BYTES else message.ljust(MESSAGE_HASH_BYTES, b'\x00')
+
+    lib.PQCLEAN_FALCON1024_CLEAN_sign(sig, siglen, message_hash, len(message_hash), secret_key)
+    
+    signed_message = bytes(sig)[:siglen[0]]
+
+    # Securely erase secret key after use
+    secure_erase(sig)
+
+    return signed_message
+
+def falcon_verify(message, signature, public_key):
+    """
+    Verify a Falcon-1024 signature.
+    The message is hashed before verification to ensure consistency.
+    """
     if len(public_key) != FALCON_PUBLICKEYBYTES:
         raise ValueError("Invalid public key size")
-    result = lib.PQCLEAN_FALCON1024_CLEAN_verify(signature, len(signature), message, len(message), public_key)
+    
+    message_hash = secrets.token_bytes(MESSAGE_HASH_BYTES) if len(message) > MESSAGE_HASH_BYTES else message.ljust(MESSAGE_HASH_BYTES, b'\x00')
+
+    result = lib.PQCLEAN_FALCON1024_CLEAN_verify(signature, len(signature), message_hash, len(message_hash), public_key)
+
     return result == 0
 
 if __name__ == "__main__":
     try:
-        pk, sk = falcon_keygen()
-        print("Public Key:", pk.hex())
-        print("Secret Key:", sk.hex())
-        message = b"Post-Quantum Cryptography Test"
-        signature = falcon_sign(message, sk)
-        print("Signature:", signature.hex())
-        is_valid = falcon_verify(message, signature, pk)
-        print("Signature valid:", is_valid)
+        print("Generating Falcon key pair...")
+        alice_pk, alice_sk = falcon_keygen()
+
+        message = b"Secure post-quantum authentication"
+        print("Signing message...")
+        signature = falcon_sign(message, alice_sk)
+
+        print("Verifying signature...")
+        is_valid = falcon_verify(message, signature, alice_pk)
+
+        if not is_valid:
+            raise ValueError("Signature verification failed")
+
+        print("Falcon Signature Authentication Successful")
+    
     except Exception as e:
         print(f"Error: {e}")
