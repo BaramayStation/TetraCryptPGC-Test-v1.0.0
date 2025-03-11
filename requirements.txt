@@ -3,6 +3,6 @@ scipy==1.12.0
 matplotlib==3.8.3
 sympy==1.12
 cryptography==42.0.5
-pqcrypto==0.1.3
-flask==3.0.3
+pqcrypto-falcon==0.0.2
+flask==3.0.2
 click==8.1.7
