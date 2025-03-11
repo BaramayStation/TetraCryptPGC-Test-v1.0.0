@@ -3,6 +3,6 @@ scipy
 matplotlib
 sympy
 cryptography
-pqcrypto
+pqcrypto==0.1.3 --hash=sha256:54ae6cd2f8e788ad23279f0b491c8f65c91f7503e0abccbf424508c594d5c059
 flask
 click
