@@ -115,3 +115,8 @@ TetraCryptPGC/
 │   └── init.py     # Python module initialization
 ├── tests/              # Test suite directory
 │   └── testhandshake.py  # Unit tests for validation
+### Testing
+### Generating KATs
+To generate Known Answer Tests for the TetraPQ-XDH handshake:
+```bash
+podman run --rm -v $(pwd)/KAT:/app/KAT tetrapgc-nist python3 generate_kat.py
