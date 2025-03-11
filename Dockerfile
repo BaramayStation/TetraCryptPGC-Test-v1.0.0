@@ -30,8 +30,14 @@ RUN mkdir build && cd build && \
     cp ./crypto_kem/kyber1024/clean/libpqclean_kyber1024_clean.so /app/lib/ && \
     cp ./crypto_sign/falcon-1024/clean/libpqclean_falcon1024_clean.so /app/lib/
 
-# Copy the application files (kyber_kem.py and requirements.txt)
-COPY ./kyber_kem.py /app/
+ENV KYBER_LIB_PATH=/app/lib/libpqclean_kyber1024_clean.so
+ENV FALCON_LIB_PATH=/app/lib/libpqclean_falcon1024_clean.so
+
+# Copy the application and test files
+COPY ./src/handshake.py /app/
+COPY ./src/kyber_kem.py /app/
+COPY ./src/falcon_sign.py /app/
+COPY ./tests/testhandshake.py /app/
 COPY ./requirements.txt /app/
 
 # Install Python dependencies
@@ -43,5 +49,5 @@ ENV LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
 # Set the working directory back to /app for running the script
 WORKDIR /app
 
-# Set the entrypoint for the container
-CMD ["python3", "kyber_kem.py"]
+# Set the entrypoint to run the tests by default
+CMD ["python3", "-m", "unittest", "testhandshake.py"]
