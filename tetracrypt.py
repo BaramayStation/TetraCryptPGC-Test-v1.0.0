@@ -1,5 +1,5 @@
 
-import pqcrypto.sign.falcon as falcon
+import pqcrypto.key.falcon as falcon
 import hashlib
 
 def generate_key():
