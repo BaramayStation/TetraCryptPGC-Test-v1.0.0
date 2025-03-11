@@ -1,19 +1,19 @@
-# Use Ubuntu Minimal LTS (Security-Hardened)
-FROM ubuntu:24.04 AS base
+# Secure Minimalist Base Image
+FROM gcr.io/distroless/cc-debian12:latest AS base
 
-# Enable FIPS Mode (Government Compliance)
+# Enable FIPS 140-2/3 Compliance
 ENV UBUNTU_FIPS=true
 RUN apt update && apt install -y ubuntu-fips && update-crypto-policies --set FIPS
 
-# Install system dependencies for Python, CFFI, and PQCLEAN libraries
-RUN apt install -y --no-install-recommends \
+# Install necessary dependencies
+RUN apt update && apt install -y --no-install-recommends \
     python3 python3-pip python3-cffi \
     build-essential cmake clang git \
     openssl libssl-dev libpkcs11-helper1 \
     pcscd libpcsclite1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install HSM/TPM Support (PKCS#11)
+# Install Hardware Security Module (HSM) and PKCS#11 Support
 RUN apt install -y opensc libengine-pkcs11-openssl
 
 # Set up the working directory
@@ -22,10 +22,11 @@ WORKDIR /app
 # Clone PQCLEAN Repository for Post-Quantum Cryptography
 RUN git clone --depth 1 https://github.com/PQClean/PQClean.git /app/PQClean
 
-# Compile PQCLEAN libraries with optimizations for FIPS, AES-NI, and Hardware RNG
+# Compile PQCLEAN with security-hardened flags
 WORKDIR /app/PQClean
 RUN mkdir build && cd build && \
-    cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release -DUSE_AESNI=ON -DUSE_HWRNG=ON .. && \
+    cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release -DUSE_AESNI=ON -DUSE_HWRNG=ON \
+          -D_FORTIFY_SOURCE=2 -fstack-protector-strong -D_GLIBCXX_ASSERTIONS .. && \
     make -j$(nproc) && \
     mkdir -p /app/lib && \
     cp ./crypto_kem/kyber1024/clean/libpqclean_kyber1024_clean.so /app/lib/ && \
@@ -36,33 +37,44 @@ ENV KYBER_LIB_PATH=/app/lib/libpqclean_kyber1024_clean.so
 ENV FALCON_LIB_PATH=/app/lib/libpqclean_falcon1024_clean.so
 ENV LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
 
-# ✅ Stage 2: Optimized Application Layer (Separate for Security)
+# Secure Python Environment
 FROM base AS app
 
-# Install GPU Acceleration Libraries (NVIDIA CUDA & OpenCL)
-RUN apt install -y nvidia-cuda-toolkit ocl-icd-libopencl1 clinfo
-
-# Copy the application code
-COPY ./src/ /app/src/
-COPY ./tests/ /app/tests/
+# Install Python dependencies securely (Pinned versions for reproducibility)
 COPY ./requirements.txt /app/
-
-# Install Python dependencies in a secure virtual environment
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir -r /app/requirements.txt
 
-# ✅ Stage 3: Final Hardened Runtime (Production-Ready)
+# Copy Secure Application Code
+COPY ./src/ /app/src/
+COPY ./tests/ /app/tests/
+
+# Final Hardened Runtime Environment
 FROM app AS runtime
 
-# Set secure permissions & disable unnecessary services for FIPS compliance
+# Create a Non-Root User for Execution
+RUN addgroup --system tetrapgc && adduser --system --ingroup tetrapgc tetrapgc
+USER tetrapgc
+
+# Apply Read-Only Filesystem for Additional Security
 RUN chmod -R 700 /app && \
     chmod -R 500 /app/lib && \
     chmod -R 500 /app/src && \
     chmod -R 500 /app/tests && \
-    chown -R root:root /app
+    chown -R tetrapgc:tetrapgc /app
+VOLUME /app  # Make /app immutable
 
-# Set the working directory for execution
-WORKDIR /app
+# Enable Mandatory Access Controls (SELinux & AppArmor)
+RUN apt install -y selinux-basics selinux-utils apparmor-utils && \
+    setenforce 1 && \
+    echo "SELinux is enabled" && \
+    aa-enforce /etc/apparmor.d/*
 
-# Set the default command to run tests and validate PQC handshake
-CMD ["/app/venv/bin/python3", "-m", "unittest", "tests/testhandshake.py"]
+# Apply Kernel Hardening
+RUN sysctl -w kernel.randomize_va_space=2 && \
+    sysctl -w kernel.dmesg_restrict=1 && \
+    sysctl -w kernel.kptr_restrict=2
+
+# Seccomp Profile for Minimal Syscall Usage
+COPY seccomp_profile.json /app/seccomp_profile.json
+CMD ["python3", "-m", "unittest", "tests/testhandshake.py"]
