@@ -29,14 +29,18 @@ KYBER_CIPHERTEXTBYTES = 1568
 FALCON_PUBLICKEYBYTES = 1792
 FALCON_SECRETKEYBYTES = 2304
 FALCON_SIGNATUREBYTES = 1280
-SHARED_SECRET_BYTES = 32  # Standard Kyber shared secret length
+SHARED_SECRET_BYTES = 32  # Kyber shared secret length
+DERIVED_KEY_BYTES = 64  # Key length after HKDF expansion
 
 # ---------------- Secure Functions ----------------
 
 def secure_erase(buffer):
-    """Securely erase memory to prevent side-channel attacks."""
-    for i in range(len(buffer)):
-        buffer[i] = secrets.randbits(8)
+    """Securely erase sensitive memory to prevent leakage and side-channel attacks."""
+    if isinstance(buffer, memoryview):
+        buffer[:] = bytes(len(buffer))  # Overwrite with zeros
+    else:
+        for i in range(len(buffer)):
+            buffer[i] = secrets.randbits(8)  # Fill with random noise
 
 # ---------------- Key Generation ----------------
 
@@ -91,11 +95,11 @@ def verify_signature(shared_secret, signature, falcon_pk):
 # ---------------- Hybrid Key Derivation ----------------
 
 def derive_final_shared_secret(raw_secret, transcript):
-    """Use HKDF to derive a secure final key."""
+    """Use HKDF to derive a secure final session key with explicit salt."""
     hkdf = HKDF(
         algorithm=hashes.SHA3_512(),
-        length=64,  # Generate 512-bit session key
-        salt=None,
+        length=DERIVED_KEY_BYTES,
+        salt=secrets.token_bytes(32),  # Explicit salt for security
         info=transcript,
     )
     return hkdf.derive(raw_secret)
@@ -125,8 +129,10 @@ def pq_xdh_handshake_multiparty(participants=3):
 
         shared_secrets.append(ss_sender)
 
-    # Generate transcript hash (binds all public keys)
-    transcript = hashlib.sha3_512(b"".join(keys[f"pk_kyber_{i}"] for i in range(participants))).digest()
+    # Generate transcript hash (binds all public keys and signatures)
+    transcript = hashlib.sha3_512(
+        b"".join(keys[f"pk_kyber_{i}"] + keys[f"pk_falcon_{i}"] for i in range(participants))
+    ).digest()
 
     # Sign transcript for authentication
     signatures = {i: sign_shared_secret(transcript, keys[f"sk_falcon_{i}"]) for i in range(participants)}
