@@ -1,44 +1,111 @@
 import os
+import hashlib
+import secrets
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
 from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
 from src.falcon_sign import falcon_keygen, falcon_sign, falcon_verify
 
+# Secure Directory Creation
+KAT_DIR = "KAT"
+os.makedirs(KAT_DIR, exist_ok=True)
+
+# Constants
+SHARED_SECRET_BYTES = 32  # Standard Kyber shared secret length
+DERIVED_KEY_BYTES = 64  # Key length after HKDF expansion
+
+def secure_erase(buffer):
+    """Securely erase sensitive memory after use."""
+    for i in range(len(buffer)):
+        buffer[i] = secrets.randbits(8)
+
+def derive_final_shared_secret(raw_secret, transcript):
+    """Use HKDF to derive a more secure session key."""
+    hkdf = HKDF(
+        algorithm=hashes.SHA3_512(),
+        length=DERIVED_KEY_BYTES,
+        salt=None,
+        info=transcript,
+    )
+    return hkdf.derive(raw_secret)
+
 def generate_kat():
-    os.makedirs("KAT", exist_ok=True)
-    with open("KAT/tetrapq_xdh_kat.txt", "w") as f:
-        # Alice's keys
+    """Generates Known Answer Tests (KAT) for the TetraPQ-XDH handshake."""
+
+    kat_file = os.path.join(KAT_DIR, "tetrapq_xdh_kat.txt")
+
+    with open(kat_file, "w") as f:
+        f.write("# TetraCryptPGC Post-Quantum KAT Log\n\n")
+
+        # Generate Key Pairs
         pk_A_kyber, sk_A_kyber = kyber_keygen()
         pk_A_falcon, sk_A_falcon = falcon_keygen()
-        f.write(f"Alice Kyber Public Key: {pk_A_kyber.hex()}\n")
-        f.write(f"Alice Kyber Secret Key: {sk_A_kyber.hex()}\n")
-        f.write(f"Alice Falcon Public Key: {pk_A_falcon.hex()}\n")
-        f.write(f"Alice Falcon Secret Key: {sk_A_falcon.hex()}\n")
-
-        # Bob's keys
         pk_B_kyber, sk_B_kyber = kyber_keygen()
         pk_B_falcon, sk_B_falcon = falcon_keygen()
-        f.write(f"Bob Kyber Public Key: {pk_B_kyber.hex()}\n")
-        f.write(f"Bob Kyber Secret Key: {sk_B_kyber.hex()}\n")
-        f.write(f"Bob Falcon Public Key: {pk_B_falcon.hex()}\n")
-        f.write(f"Bob Falcon Secret Key: {sk_B_falcon.hex()}\n")
 
-        # Key exchange
+        # Log Public and Private Keys (Hex Format)
+        f.write("## Alice's Key Pairs\n")
+        f.write(f"Alice Kyber Public Key: {pk_A_kyber.hex()}\n")
+        f.write(f"Alice Falcon Public Key: {pk_A_falcon.hex()}\n")
+
+        f.write("## Bob's Key Pairs\n")
+        f.write(f"Bob Kyber Public Key: {pk_B_kyber.hex()}\n")
+        f.write(f"Bob Falcon Public Key: {pk_B_falcon.hex()}\n")
+
+        # Key Exchange
         ct_B, ss_B = kyber_encapsulate(pk_A_kyber)
         ss_A = kyber_decapsulate(ct_B, sk_A_kyber)
+
+        # Securely erase ephemeral secret keys
+        secure_erase(sk_A_kyber)
+        secure_erase(sk_B_kyber)
+
+        f.write("\n## Key Exchange\n")
         f.write(f"Ciphertext (Bob to Alice): {ct_B.hex()}\n")
         f.write(f"Shared Secret (Bob): {ss_B.hex()}\n")
         f.write(f"Shared Secret (Alice): {ss_A.hex()}\n")
 
+        # Derive Final Secure Session Key
+        transcript = hashlib.sha3_512(pk_A_kyber + pk_B_kyber + ct_B).digest()
+        derived_ss_A = derive_final_shared_secret(ss_A, transcript)
+        derived_ss_B = derive_final_shared_secret(ss_B, transcript)
+
+        f.write("\n## Derived Session Key\n")
+        f.write(f"Session Key (Alice): {derived_ss_A.hex()}\n")
+        f.write(f"Session Key (Bob): {derived_ss_B.hex()}\n")
+
         # Authentication
-        sig_A = falcon_sign(ss_A, sk_A_falcon)
-        sig_B = falcon_sign(ss_B, sk_B_falcon)
-        f.write(f"Signature (Alice): {sig_A.hex()}\n")
-        f.write(f"Signature (Bob): {sig_B.hex()}\n")
+        sig_A = falcon_sign(derived_ss_A, sk_A_falcon)
+        sig_B = falcon_sign(derived_ss_B, sk_B_falcon)
+
+        # Securely erase ephemeral Falcon keys
+        secure_erase(sk_A_falcon)
+        secure_erase(sk_B_falcon)
+
+        f.write("\n## Signatures\n")
+        f.write(f"Alice Signature: {sig_A.hex()}\n")
+        f.write(f"Bob Signature: {sig_B.hex()}\n")
 
         # Verification
-        valid_A = falcon_verify(ss_B, sig_A, pk_A_falcon)
-        valid_B = falcon_verify(ss_A, sig_B, pk_B_falcon)
-        f.write(f"Verification (Alice’s sig by Bob): {valid_A}\n")
-        f.write(f"Verification (Bob’s sig by Alice): {valid_B}\n")
+        valid_A = falcon_verify(derived_ss_B, sig_A, pk_A_falcon)
+        valid_B = falcon_verify(derived_ss_A, sig_B, pk_B_falcon)
+
+        f.write("\n## Signature Verification\n")
+        f.write(f"Verification (Alice’s sig by Bob): {'Valid' if valid_A else 'Invalid'}\n")
+        f.write(f"Verification (Bob’s sig by Alice): {'Valid' if valid_B else 'Invalid'}\n")
+
+        # Output Hash Integrity Check
+        file_hash = hashlib.sha3_512(open(kat_file, "rb").read()).hexdigest()
+        f.write("\n## Integrity Check\n")
+        f.write(f"KAT File Hash: {file_hash}\n")
+
+        # Validate the handshake
+        if not (valid_A and valid_B):
+            raise ValueError("KAT Generation Failed: Signature Verification Failed")
+        if derived_ss_A != derived_ss_B:
+            raise ValueError("KAT Generation Failed: Shared Secrets Mismatch")
+
+    print(f"KAT generated successfully at {kat_file}")
 
 if __name__ == "__main__":
     generate_kat()
