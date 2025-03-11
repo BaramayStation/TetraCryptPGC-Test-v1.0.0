@@ -1,10 +1,15 @@
-# Use the latest Ubuntu LTS as the base image
+# Use a lightweight Ubuntu 24.04 base optimized for large-scale deployments
 FROM ubuntu:24.04
 
-# Set environment variables to avoid interactive prompts
+# Set non-interactive mode to prevent manual prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies for Python, CFFI, and building PQCLEAN
+# Define common paths
+ENV APP_HOME="/app"
+ENV LIB_DIR="$APP_HOME/lib"
+ENV PQCLEAN_REPO="https://github.com/PQClean/PQClean.git"
+
+# Install core dependencies for enterprise-scale PQCLEAN builds
 RUN apt update && apt install -y \
     python3 \
     python3-pip \
@@ -13,40 +18,46 @@ RUN apt update && apt install -y \
     cmake \
     clang \
     git \
+    pkg-config \
+    ninja-build \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory
-WORKDIR /app
+# Create non-root user for Podman compatibility & security
+RUN useradd -m appuser && chown -R appuser $APP_HOME
+USER appuser
 
-# Clone PQCLEAN repository to ensure we have the source code
-RUN git clone --depth 1 https://github.com/PQClean/PQClean.git /app/PQClean
+# Set working directory
+WORKDIR $APP_HOME
 
-# Compile PQCLEAN with shared libraries
-WORKDIR /app/PQClean
-RUN mkdir build && cd build && \
-    cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release .. && \
-    make && \
-    mkdir -p /app/lib && \
-    cp ./crypto_kem/kyber1024/clean/libpqclean_kyber1024_clean.so /app/lib/ && \
-    cp ./crypto_sign/falcon-1024/clean/libpqclean_falcon1024_clean.so /app/lib/
+# Clone PQCLEAN repository (shallow clone for speed)
+RUN git clone --depth 1 $PQCLEAN_REPO $APP_HOME/PQClean
+
+# Build Kyber-1024 & Falcon-1024 libraries with optimizations
+WORKDIR $APP_HOME/PQClean
+RUN mkdir -p build && cd build && \
+    cmake -G Ninja -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release .. && \
+    ninja && \
+    mkdir -p $LIB_DIR && \
+    cp ./crypto_kem/kyber1024/clean/libpqclean_kyber1024_clean.so $LIB_DIR/ && \
+    cp ./crypto_sign/falcon-1024/clean/libpqclean_falcon1024_clean.so $LIB_DIR/
 
 # Set environment variables for library paths
-ENV KYBER_LIB_PATH=/app/lib/libpqclean_kyber1024_clean.so
-ENV FALCON_LIB_PATH=/app/lib/libpqclean_falcon1024_clean.so
-ENV LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
+ENV KYBER_LIB_PATH=$LIB_DIR/libpqclean_kyber1024_clean.so
+ENV FALCON_LIB_PATH=$LIB_DIR/libpqclean_falcon1024_clean.so
+ENV LD_LIBRARY_PATH=$LIB_DIR:$LD_LIBRARY_PATH
 
-# Copy the application and test files
-COPY ./src/handshake.py /app/
-COPY ./src/kyber_kem.py /app/
-COPY ./src/falcon_sign.py /app/
-COPY ./tests/testhandshake.py /app/
-COPY ./requirements.txt /app/
+# Copy application source code & tests (enterprise-scale)
+COPY --chown=appuser ./src/ $APP_HOME/src/
+COPY --chown=appuser ./tests/ $APP_HOME/tests/
+COPY --chown=appuser ./requirements.txt $APP_HOME/
 
-# Install Python dependencies
-RUN pip3 install --no-cache-dir -r /app/requirements.txt
+# Install Python dependencies (enterprise-ready)
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir -r $APP_HOME/requirements.txt
 
-# Set the working directory for running the script
-WORKDIR /app
+# Create a persistent volume for enterprise logging & data storage
+VOLUME ["/data", "/logs"]
 
-# Set the entrypoint to run the tests by default
-CMD ["python3", "-m", "unittest", "testhandshake.py"]
+# Define entrypoint for enterprise environments
+CMD ["python3", "-m", "unittest", "discover", "-s", "tests"]
