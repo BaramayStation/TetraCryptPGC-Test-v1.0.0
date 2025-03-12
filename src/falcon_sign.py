@@ -2,6 +2,19 @@ import os
 import secrets
 from cffi import FFI
 from py_ecc.bn128 import G1, G2, add, multiply, pairing  # ZK-SNARK-based pairing operations
+from pqcrypto.sign import dilithium2
+
+def dilithium_keygen():
+    """Generate a Dilithium key pair."""
+    return dilithium2.keypair()
+
+def dilithium_sign(message, sk):
+    """Sign a message with Dilithium."""
+    return dilithium2.sign(message, sk)
+
+def dilithium_verify(message, signature, pk):
+    """Verify a Dilithium signature."""
+    return dilithium2.verify(message, signature, pk)
 
 ffi = FFI()
 FALCON_LIB_PATH = os.getenv("FALCON_LIB_PATH", "/app/lib/libpqclean_falcon1024_clean.so")
