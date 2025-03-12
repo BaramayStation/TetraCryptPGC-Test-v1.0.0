@@ -1,6 +1,9 @@
 import unittest
 from src.pq_xdh_handshake import pqc_ecc_hybrid_handshake
-
+class TestHybridHandshake(unittest.TestCase):
+    def test_invalid_signature(self):
+        with self.assertRaises(TetraError):
+            verify_handshake(tampered_data)  # Replace 'verify_handshake' and 'tampered_data' with your actual function and test data
 class TestHybridHandshake(unittest.TestCase):
     def test_hybrid_handshake(self):
         """Ensure the hybrid PQC + ECC handshake succeeds."""
