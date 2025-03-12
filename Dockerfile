@@ -1,3 +1,6 @@
+# Install QKD Dependencies
+RUN pip install QuNetSim
+
 # Install Cryptographic Libraries
 RUN apt install -y libssl-dev libpqcrypto-dev
 
