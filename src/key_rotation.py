@@ -1,30 +1,34 @@
-import os
 import time
+import hashlib
 from src.kyber_kem import kyber_keygen
-from src.falcon_sign import falcon_keygen
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
 
-ROTATION_INTERVAL = 30 * 24 * 60 * 60  # Rotate every 30 days
-KEY_STORAGE = "/app/keys"
+class KeyRotation:
+    def __init__(self, rotation_interval=3600):
+        """Initialize key rotation with a defined interval (default: 1 hour)."""
+        self.rotation_interval = rotation_interval
+        self.current_key = None
+        self.last_rotation = time.time()
 
-def rotate_keys():
-    """Generate new Kyber and Falcon key pairs at regular intervals."""
-    if not os.path.exists(KEY_STORAGE):
-        os.makedirs(KEY_STORAGE)
+    def rotate_keys(self):
+        """Generate new ephemeral keys and derive fresh session keys."""
+        pk, sk = kyber_keygen()
+        raw_key_material = hashlib.sha3_512(pk + sk).digest()
 
-    new_kyber_pk, new_kyber_sk = kyber_keygen()
-    new_falcon_pk, new_falcon_sk = falcon_keygen()
+        session_key = HKDF(
+            algorithm=hashes.SHA3_512(),
+            length=64,
+            salt=None,
+            info=b"Session Key Rotation",
+        ).derive(raw_key_material)
 
-    timestamp = int(time.time())
-    with open(f"{KEY_STORAGE}/kyber_{timestamp}.pub", "wb") as f:
-        f.write(new_kyber_pk)
-    with open(f"{KEY_STORAGE}/kyber_{timestamp}.key", "wb") as f:
-        f.write(new_kyber_sk)
-    with open(f"{KEY_STORAGE}/falcon_{timestamp}.pub", "wb") as f:
-        f.write(new_falcon_pk)
-    with open(f"{KEY_STORAGE}/falcon_{timestamp}.key", "wb") as f:
-        f.write(new_falcon_sk)
+        self.current_key = session_key
+        self.last_rotation = time.time()
+        return session_key
 
-    print(f"Keys rotated at {time.ctime(timestamp)}")
-
-if __name__ == "__main__":
-    rotate_keys()
+    def check_rotation(self):
+        """Check if key rotation is required and update keys if necessary."""
+        if time.time() - self.last_rotation > self.rotation_interval:
+            return self.rotate_keys()
+        return self.current_key
