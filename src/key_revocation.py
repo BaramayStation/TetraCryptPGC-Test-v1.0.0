@@ -1,5 +1,14 @@
 import hashlib
 import time
+revoked_keys = set()
+
+def revoke_key(public_key):
+    """Revoke a key by adding it to the revocation list."""
+    revoked_keys.add(public_key.hex())
+
+def is_key_revoked(public_key):
+    """Check if a key is revoked."""
+    return public_key.hex() in revoked_keys
 
 class KeyRevocation:
     def __init__(self):
