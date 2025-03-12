@@ -1,82 +1,42 @@
-import os
-import time
-import hmac
-import hashlib
-from cryptography.hazmat.primitives.asymmetric import x25519
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives import hashes
-from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
-from src.falcon_sign import falcon_keygen, falcon_sign, falcon_verify
+import unittest
+from src import pq_xdh_handshake_mutual, kyber_keygen, kyber_encapsulate, kyber_decapsulate
+from src import falcon_keygen, falcon_sign, falcon_verify
 
-def derive_hybrid_key(pqc_secret, ecc_secret, salt):
-    """Combine Kyber shared secret and X25519 shared secret into a single cryptographic key."""
-    hkdf = HKDF(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        info=b'pqc+ecc-transition',
-    )
-    return hkdf.derive(pqc_secret + ecc_secret)
+class TestPQXDH(unittest.TestCase):
+    def test_key_generation(self):
+        """Test Kyber and Falcon key pair generation."""
+        public_key_kyber_A, secret_key_kyber_A = kyber_keygen()
+        public_key_falcon_A, secret_key_falcon_A = falcon_keygen()
+        public_key_kyber_B, _secret_key_kyber_B = kyber_keygen()  # Unused variable replaced with _
+        public_key_falcon_B, secret_key_falcon_B = falcon_keygen()
 
-def validate_shared_key(ss_A, ss_B):
-    """Validate that both parties derive the same shared key."""
-    return hmac.compare_digest(ss_A, ss_B)
+        self.assertEqual(len(public_key_kyber_A), 1568, "Kyber public key size mismatch")
+        self.assertEqual(len(secret_key_kyber_A), 3168, "Kyber secret key size mismatch")
+        self.assertEqual(len(public_key_falcon_A), 1792, "Falcon public key size mismatch")
+        self.assertEqual(len(secret_key_falcon_A), 2304, "Falcon secret key size mismatch")
 
-def pqc_ecc_hybrid_handshake():
-    """
-    Hybrid Post-Quantum + ECC (X25519) Key Exchange with Mutual Authentication.
-    """
-    salt = os.urandom(16)  # Secure random salt
+    def test_encapsulation_decapsulation(self):
+        """Test Kyber encapsulation and decapsulation."""
+        public_key, secret_key = kyber_keygen()
+        ciphertext, shared_secret_encapsulated = kyber_encapsulate(public_key)
+        shared_secret_decapsulated = kyber_decapsulate(ciphertext, secret_key)
 
-    # Step 1: Generate PQC Keys (Kyber + Falcon)
-    pk_A_kyber, sk_A_kyber = kyber_keygen()
-    pk_A_falcon, sk_A_falcon = falcon_keygen()
-    pk_B_kyber, sk_B_kyber = kyber_keygen()
-    pk_B_falcon, sk_B_falcon = falcon_keygen()
+        self.assertEqual(shared_secret_encapsulated, shared_secret_decapsulated, "Kyber shared secrets do not match")
 
-    # Step 2: Generate ECC Keys (X25519)
-    sk_A_ecc = x25519.X25519PrivateKey.generate()
-    pk_A_ecc = sk_A_ecc.public_key()
-    sk_B_ecc = x25519.X25519PrivateKey.generate()
-    pk_B_ecc = sk_B_ecc.public_key()
+    def test_signature_verification(self):
+        """Test Falcon signing and verification."""
+        public_key_falcon, secret_key_falcon = falcon_keygen()
+        message = b"Post-Quantum Test Message"
+        signature = falcon_sign(message, secret_key_falcon)
 
-    # Step 3: PQC Key Exchange (Kyber)
-    ciphertext_B, ss_B_pqc = kyber_encapsulate(pk_A_kyber)
-    ss_A_pqc = kyber_decapsulate(ciphertext_B, sk_A_kyber)
+        self.assertTrue(falcon_verify(message, signature, public_key_falcon), "Falcon signature verification failed")
 
-    # Step 4: ECC Key Exchange (X25519)
-    ss_A_ecc = sk_A_ecc.exchange(pk_B_ecc)
-    ss_B_ecc = sk_B_ecc.exchange(pk_A_ecc)
+    def test_full_handshake(self):
+        """Test the full post-quantum XDH handshake."""
+        handshake_valid, shared_secret_A, shared_secret_B = pq_xdh_handshake_mutual()
 
-    # Step 5: Combine PQC and ECC Secrets
-    ss_A = derive_hybrid_key(ss_A_pqc, ss_A_ecc, salt)
-    ss_B = derive_hybrid_key(ss_B_pqc, ss_B_ecc, salt)
-
-    # Step 6: Mutual Authentication using Falcon Signatures
-    session_id = os.urandom(16)
-    timestamp = int(time.time()).to_bytes(8, "big")
-
-    transcript = hashlib.sha256(
-        pk_A_kyber + pk_B_kyber + pk_A_ecc.public_bytes_raw() + pk_B_ecc.public_bytes_raw() + timestamp + session_id
-    ).digest()
-
-    sig_A = falcon_sign(transcript, sk_A_falcon)
-    sig_B = falcon_sign(transcript, sk_B_falcon)
-
-    valid_A = falcon_verify(transcript, sig_A, pk_A_falcon)
-    valid_B = falcon_verify(transcript, sig_B, pk_B_falcon)
-
-    if not (valid_A and valid_B):
-        raise ValueError("Signature verification failed")
-
-    if not validate_shared_key(ss_A, ss_B):
-        raise ValueError("Key agreement failed: Derived keys do not match")
-
-    return True, ss_A
+        self.assertTrue(handshake_valid, "Handshake authentication failed")
+        self.assertEqual(shared_secret_A, shared_secret_B, "Handshake shared secrets do not match")
 
 if __name__ == "__main__":
-    try:
-        success, hybrid_key = pqc_ecc_hybrid_handshake()
-        print(f"Hybrid Handshake Successful: {success}")
-    except Exception as e:
-        print(f"Error: {e}")
+    unittest.main()
