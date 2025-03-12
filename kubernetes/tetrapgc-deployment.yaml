@@ -1,11 +1,11 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: tetrapgc-secure
+  name: tetrapgc
   labels:
     app: tetrapgc
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: tetrapgc
@@ -15,118 +15,20 @@ spec:
         app: tetrapgc
     spec:
       securityContext:
-        seccompProfile:
-          type: RuntimeDefault
+        runAsUser: 1000
         runAsNonRoot: true
-        readOnlyRootFilesystem: true
-        capabilities:
-          drop: ["ALL"]
-        allowPrivilegeEscalation: false
       containers:
-      - name: tetrapgc
-        image: abraxas618/tetrapgc:latest
+      - name: tetrapgc-container
+        image: tetrapgc:latest
         securityContext:
-          runAsNonRoot: true
           readOnlyRootFilesystem: true
-          privileged: false
-        env:
-          - name: QKD_PROVIDER
-            value: "bb84"  # Options: bb84, idquantique, serial
-          - name: FIPS_ENABLED
-            value: "true"
-          - name: SECURE_ENCLAVE_MODE
-            value: "SGX"  # Options: SGX, TPM, TrustedZone
-          - name: NETWORK_SECURITY_MODE
-            value: "zero-trust"  
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         volumeMounts:
-          - name: tpm-storage
-            mountPath: /dev/tpm0
-          - name: secure-secrets
-            mountPath: /etc/secure-secrets
-            readOnly: true
+          - mountPath: /app/local
+            name: pqc-libs
       volumes:
-        - name: tpm-storage
-          hostPath:
-            path: /dev/tpm0
-        - name: secure-secrets
-          secret:
-            secretName: secure-keys
-      nodeSelector:
-        security.hardware.qkd: "true"  # Ensures deployment on nodes with QKD support
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: tetrapgc-service
-  labels:
-    app: tetrapgc
-spec:
-  selector:
-    app: tetrapgc
-  ports:
-    - protocol: TCP
-      port: 443
-      targetPort: 8443
-  type: ClusterIP
-
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: tetrapgc-zero-trust
-spec:
-  podSelector:
-    matchLabels:
-      app: tetrapgc
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              role: trusted-client
-      ports:
-        - protocol: TCP
-          port: 443
-  egress:
-    - to:
-        - podSelector:
-            matchLabels:
-              role: trusted-server
-      ports:
-        - protocol: TCP
-          port: 443
-
----
-apiVersion: policy/v1
-kind: PodSecurityPolicy
-metadata:
-  name: secure-pod-policy
-spec:
-  privileged: false
-  readOnlyRootFilesystem: true
-  allowPrivilegeEscalation: false
-  hostNetwork: false
-  hostIPC: false
-  hostPID: false
-  runAsUser:
-    rule: MustRunAsNonRoot
-  seLinux:
-    rule: RunAsAny
-  supplementalGroups:
-    rule: MustRunAs
-    ranges:
-      - min: 1000
-        max: 2000
-  fsGroup:
-    rule: MustRunAs
-    ranges:
-      - min: 1000
-        max: 2000
-  volumes:
-    - "secret"
-    - "configMap"
-    - "emptyDir"
-    - "projected"
+      - name: pqc-libs
+        emptyDir: {}
