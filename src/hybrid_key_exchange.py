@@ -2,6 +2,7 @@ import os
 import secrets
 from cffi import FFI
 from cryptography.hazmat.primitives.asymmetric import x25519
+from src import kyber_kem  # ✅ Corrected import path
 from secure_hsm import store_key_in_hsm, retrieve_key_from_hsm
 
 # Example: Generating a nonce
@@ -9,8 +10,7 @@ nonce = secrets.token_bytes(32)
 
 def generate_secure_kyber_keys():
     """Generate a Kyber keypair and store it in HSM."""
-    from src.kyber_kem import kyber_keygen  # Lazy import to prevent circular import issue
-    pk, sk = kyber_keygen()
+    pk, sk = kyber_kem.kyber_keygen()  # ✅ Corrected function call
     store_key_in_hsm(sk)  # Store Kyber Secret Key inside HSM
     return pk, sk
 
