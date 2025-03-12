@@ -1,13 +1,6 @@
-# Core Cryptographic Libraries
-cffi>=1.15.0   # Provides CFFI interface for PQClean bindings
-cryptography>=41.0.3,<50.0  # NIST/FIPS compliant cryptography library (includes HKDF)
-
-# Post-Quantum Secure Primitives
-pycryptodome>=3.18.0,<4.0  # Provides AES, SHA, and random number generation
-
-# Development & Security Tools
-pytest>=7.0.0,<9.0  # Unit testing framework
-unittest2>=1.1.0  # Legacy-compatible unit testing for Python
-
-# Optional for Secure Storage & Enclaves (if using TPM/SGX)
-pyopenssl>=23.2.0,<24.0  # TLS Certificate handling
+cffi>=1.15.0
+cryptography>=41.0.0
+pycryptodome>=3.18.0
+hkdf>=0.0.3
+scapy>=2.5.0
+fastecdsa>=2.2.3
