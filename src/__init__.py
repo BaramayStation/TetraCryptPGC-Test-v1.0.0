@@ -16,9 +16,9 @@ Complies with NIST post-quantum cryptography standards and FIPS 140-2/3 validati
 
 import logging
 import importlib
-import os
 import sys
-
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 __version__ = "1.2.1"
 __author__ = "Abraxas618"
 __license__ = "MIT"
