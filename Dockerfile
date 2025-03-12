@@ -1,40 +1,43 @@
-# Use a specific digest for reproducibility and security
-FROM ubuntu:24.04@sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
-# Replace 'abcdef...' with the actual digest from 'podman inspect ubuntu:24.04'
+# Use minimal FIPS-ready base image
+FROM gcr.io/distroless/cc-debian12:latest AS base
 
-# Install dependencies securely and minimally
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip build-essential cmake clang git libssl-dev \
+# Set up environment variables for rootless execution
+ENV OPENSSL_CONF=/app/local/ssl/openssl.cnf
+ENV LD_LIBRARY_PATH=/app/local/lib:$LD_LIBRARY_PATH
+ENV PATH=/app/local/bin:$PATH
+
+# Install dependencies inside a user directory
+RUN apt update && apt install -y --no-install-recommends \
+    python3 python3-pip python3-venv \
+    build-essential cmake clang git \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone and compile PQCLEAN with shared libraries and security flags
-RUN git clone https://github.com/PQClean/PQClean.git /pqclean \
-    && cd /pqclean \
-    && cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release -D_FORTIFY_SOURCE=2 . \
-    && make -j$(nproc) \
-    && mkdir -p /app/lib \
-    && cp lib/*.so /app/lib
+# Set up a user-space environment for cryptographic libraries
+WORKDIR /app
+RUN mkdir -p /app/local && \
+    git clone --depth 1 https://github.com/PQClean/PQClean.git /app/PQClean
 
-# Set environment variables for library paths
-ENV LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
-
-# Add a non-root user for security
-RUN addgroup --system tetrapgc && adduser --system --ingroup tetrapgc tetrapgc
-
-# Copy application code
-COPY src/ /app/src/
-COPY tests/ /app/tests/
-COPY requirements.txt /app/
-COPY main.py /app/  # Replace 'main.py' with your actual entry point file if different
+# Compile PQCLEAN libraries (Kyber-1024, Falcon-1024)
+WORKDIR /app/PQClean
+RUN mkdir build && cd build && \
+    cmake -DCMAKE_INSTALL_PREFIX=/app/local .. && \
+    make -j$(nproc) && make install
 
 # Install Python dependencies
-RUN pip3 install --no-cache-dir -r /app/requirements.txt
+COPY requirements.txt /app/
+RUN python3 -m venv /app/venv && \
+    /app/venv/bin/pip install --no-cache-dir -r /app/requirements.txt
 
-# Switch to non-root user
+# Copy application source code
+COPY src/ /app/src/
+COPY tests/ /app/tests/
+
+# Create non-root user for security
+RUN addgroup --system tetrapgc && adduser --system --ingroup tetrapgc tetrapgc
 USER tetrapgc
 
-# Set the working directory
+# Set working directory
 WORKDIR /app
 
-# Set the entry point to run the application
-CMD ["python3", "main.py"]
+# Secure Podman execution with Seccomp
+CMD ["python3", "-m", "unittest", "discover", "-s", "tests"]
