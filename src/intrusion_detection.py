@@ -1,25 +1,25 @@
-import hashlib
-import time
 import logging
 
-# Setup logging
-logging.basicConfig(filename="intrusion.log", level=logging.INFO)
+logging.basicConfig(filename="intrusion_log.txt", level=logging.WARNING)
 
 class IntrusionDetection:
-    """Detects cryptographic anomalies & possible MITM attacks."""
-
     def __init__(self):
-        self.previous_signatures = {}
+        self.failed_attempts = {}
 
-    def detect_anomalies(self, shared_secret, signature, peer):
-        """Check if the shared secret has changed unexpectedly."""
-        hash_secret = hashlib.sha256(shared_secret).hexdigest()
-        if peer in self.previous_signatures:
-            if self.previous_signatures[peer] != hash_secret:
-                logging.warning(f"Potential MITM detected! Peer: {peer}")
-                return False
-        self.previous_signatures[peer] = hash_secret
-        return True
+    def log_failure(self, event, details):
+        """Log a security event"""
+        logging.warning(f"SECURITY ALERT: {event} - {details}")
 
-# Initialize IDS
-IDS = IntrusionDetection()
+    def detect_anomaly(self, user, event):
+        """Detect repeated failures and raise alerts"""
+        if user not in self.failed_attempts:
+            self.failed_attempts[user] = 0
+        self.failed_attempts[user] += 1
+
+        if self.failed_attempts[user] > 3:  # Threshold for alert
+            self.log_failure("Repeated Authentication Failure", f"User {user} exceeded login attempts")
+            print("ALERT: Potential intrusion detected!")
+
+# Example Usage
+ids = IntrusionDetection()
+ids.detect_anomaly("user123", "Handshake Failure")
