@@ -4,7 +4,11 @@ from falcon_sign import falcon_sign, falcon_verify
 import hashlib
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
+from hashlib import sha3_512
 
+# Example: Hashing the transcript
+transcript = kyber_public_key + falcon_signature + nonce  # Adjust variables as needed
+transcript_hash = sha3_512(transcript).digest()
 def pq_xdh_qkd_handshake():
     """Perform a hybrid QKD + Kyber post-quantum handshake."""
     # Step 1: Generate PQC Keys
