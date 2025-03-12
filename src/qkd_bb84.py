@@ -1,20 +1,21 @@
-import random
+import secrets
+import hashlib
 from qunetsim.objects import QuantumContext, Host, Qubit
 from qunetsim.components import Network
-import hashlib
 
 def bb84_qkd(alice, bob):
     """
-    Simulate a BB84 Quantum Key Distribution (QKD) between Alice and Bob.
+    Simulate a BB84 Quantum Key Distribution (QKD) between Alice and Bob
+    using cryptographically secure randomness.
     """
 
     alice_key = []
     bob_key = []
-    
+
     # Step 1: Alice sends randomly polarized qubits
     for _ in range(256):  # Generate 256 raw bits
-        bit = random.randint(0, 1)
-        basis = random.choice(['+', 'x'])  # Choose a random basis
+        bit = secrets.randbits(1)  # Secure bit generation
+        basis = secrets.choice(['+', 'x'])  # Secure basis selection
         
         q = Qubit(alice)
         if basis == 'x':
@@ -23,25 +24,27 @@ def bb84_qkd(alice, bob):
             q.X()
         
         q.send(bob)
+        alice_key.append((bit, basis))  # Store Alice's choices
 
     # Step 2: Bob randomly measures in a basis
     for _ in range(256):
-        basis = random.choice(['+', 'x'])
+        basis = secrets.choice(['+', 'x'])  # Secure basis selection
         q = bob.get_data_qubit()
         
         if basis == 'x':
             q.H()
         
         bit = q.measure()
-        bob_key.append(bit)
+        bob_key.append((bit, basis))  # Store Bob's results
 
-    # Step 3: Public basis comparison
+    # Step 3: Public Basis Comparison and Key Agreement
+    final_key = []
     for i in range(len(alice_key)):
         if alice_key[i][1] == bob_key[i][1]:  # If bases match
-            bob_key.append(alice_key[i][0])  # Keep the bit
+            final_key.append(alice_key[i][0])  # Keep the bit
 
-    # Final shared key
-    shared_qkd_key = hashlib.sha3_256(bytes(bob_key)).digest()  # 256-bit key
+    # Final shared secret key (256-bit hash of the raw key)
+    shared_qkd_key = hashlib.sha3_256(bytes(final_key)).digest()
     return shared_qkd_key
 
 if __name__ == "__main__":
@@ -55,8 +58,8 @@ if __name__ == "__main__":
     network.add_host(alice)
     network.add_host(bob)
 
-    # Execute QKD
+    # Execute Secure QKD
     shared_qkd_key = bb84_qkd(alice, bob)
-    print(f"QKD Shared Key: {shared_qkd_key.hex()}")
+    print(f"Secure QKD Shared Key: {shared_qkd_key.hex()}")
 
     network.stop()
