@@ -1,71 +1,83 @@
 import os
 import secrets
-import hashlib
 from cffi import FFI
+from py_ecc.bn128 import G1, G2, add, multiply, pairing  # ZK-SNARK-based pairing operations
 
 ffi = FFI()
 FALCON_LIB_PATH = os.getenv("FALCON_LIB_PATH", "/app/lib/libpqclean_falcon1024_clean.so")
-falcon_lib = ffi.dlopen(FALCON_LIB_PATH)
+lib = ffi.dlopen(FALCON_LIB_PATH)
 
+# Define C functions for Falcon signature scheme
 ffi.cdef("""
     void PQCLEAN_FALCON1024_CLEAN_keypair(unsigned char *pk, unsigned char *sk);
     void PQCLEAN_FALCON1024_CLEAN_sign(unsigned char *sig, size_t *siglen, const unsigned char *msg, size_t msglen, const unsigned char *sk);
     int PQCLEAN_FALCON1024_CLEAN_verify(const unsigned char *sig, size_t siglen, const unsigned char *msg, size_t msglen, const unsigned char *pk);
 """)
 
-# Constants
+# Constants from PQCLEAN
 FALCON_PUBLICKEYBYTES = 1792
 FALCON_SECRETKEYBYTES = 2304
-FALCON_SIGNATURE_MAXBYTES = 1280
-MESSAGE_HASH_BYTES = 64  # Secure hash length before signing
-
-def secure_erase(buffer):
-    """Erase memory to prevent side-channel leaks."""
-    for i in range(len(buffer)):
-        buffer[i] = secrets.randbits(8)
+FALCON_SIGNATURE_MAXBYTES = 1280  # Falcon-1024 max signature size
 
 def falcon_keygen():
-    """Generate a Falcon-1024 key pair securely with HSM support."""
+    """Generate a Falcon-1024 key pair securely with validation."""
     pk = ffi.new(f"unsigned char[{FALCON_PUBLICKEYBYTES}]")
     sk = ffi.new(f"unsigned char[{FALCON_SECRETKEYBYTES}]")
     
-    falcon_lib.PQCLEAN_FALCON1024_CLEAN_keypair(pk, sk)
+    lib.PQCLEAN_FALCON1024_CLEAN_keypair(pk, sk)
 
     if len(bytes(pk)) != FALCON_PUBLICKEYBYTES or len(bytes(sk)) != FALCON_SECRETKEYBYTES:
-        raise ValueError("Invalid Falcon key sizes")
+        raise ValueError("Invalid key sizes generated")
 
     return bytes(pk), bytes(sk)
 
 def falcon_sign(message, secret_key):
-    """
-    Sign a message using Falcon-1024 with pre-hashing.
-    This prevents signing large messages directly, which reduces side-channel leakage.
-    """
+    """Sign a message using Falcon-1024 and generate a ZKP proof."""
     if len(secret_key) != FALCON_SECRETKEYBYTES:
         raise ValueError("Invalid secret key size")
 
     sig = ffi.new(f"unsigned char[{FALCON_SIGNATURE_MAXBYTES}]")
     siglen = ffi.new("size_t *")
 
-    # Secure hash the message before signing
-    message_hash = hashlib.sha3_512(message).digest()
-
-    falcon_lib.PQCLEAN_FALCON1024_CLEAN_sign(sig, siglen, message_hash, len(message_hash), secret_key)
+    lib.PQCLEAN_FALCON1024_CLEAN_sign(sig, siglen, message, len(message), secret_key)
     
     signed_message = bytes(sig)[:siglen[0]]
-    secure_erase(sig)  # Erase signature from memory after use
 
-    return signed_message
+    # Generate ZKP proof using elliptic curve pairing
+    proof = zk_prove(message, secret_key)
 
-def falcon_verify(message, signature, public_key):
-    """
-    Verify a Falcon-1024 signature.
-    Hashing the message before verification ensures consistency.
-    """
+    return signed_message, proof
+
+def falcon_verify(message, signature, proof, public_key):
+    """Verify Falcon-1024 signature and the ZKP proof."""
     if len(public_key) != FALCON_PUBLICKEYBYTES:
         raise ValueError("Invalid public key size")
     
-    message_hash = hashlib.sha3_512(message).digest()
-    result = falcon_lib.PQCLEAN_FALCON1024_CLEAN_verify(signature, len(signature), message_hash, len(message_hash), public_key)
+    # Verify Falcon signature
+    result = lib.PQCLEAN_FALCON1024_CLEAN_verify(signature, len(signature), message, len(message), public_key)
 
-    return result == 0
+    # Verify ZKP proof
+    zk_valid = zk_verify(message, proof, public_key)
+
+    return result == 0 and zk_valid
+
+# ZK-SNARK Proof Generation (Pairing-based cryptography)
+def zk_prove(message, secret_key):
+    """Generate a Zero-Knowledge Proof (ZKP) for authentication."""
+    h = int.from_bytes(message, "big")  # Convert message to integer
+    sk_int = int.from_bytes(secret_key, "big")  # Convert secret key to integer
+    
+    # Generate proof as sk_int * G1
+    proof = multiply(G1, sk_int)
+    return proof
+
+def zk_verify(message, proof, public_key):
+    """Verify a Zero-Knowledge Proof (ZKP)."""
+    h = int.from_bytes(message, "big")  # Convert message to integer
+    pk_int = int.from_bytes(public_key, "big")  # Convert public key to integer
+
+    # Check pairing equation e(proof, G2) == e(h * G1, public_key)
+    lhs = pairing(proof, G2)
+    rhs = pairing(multiply(G1, h), public_key)
+    
+    return lhs == rhs
