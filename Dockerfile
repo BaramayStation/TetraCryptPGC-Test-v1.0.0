@@ -6,10 +6,15 @@ ENV OPENSSL_CONF=/app/local/ssl/openssl.cnf
 ENV LD_LIBRARY_PATH=/app/local/lib:$LD_LIBRARY_PATH
 ENV PATH=/app/local/bin:$PATH
 
-# Install dependencies inside a user directory
+# Install dependencies inside a user directory, sorted alphabetically
 RUN apt update && apt install -y --no-install-recommends \
-    python3 python3-pip python3-venv \
-    build-essential cmake clang git \
+    build-essential \
+    clang \
+    cmake \
+    git \
+    python3 \
+    python3-pip \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up a user-space environment for cryptographic libraries
