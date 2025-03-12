@@ -1,3 +1,7 @@
+RUN apt install -y mokutil && \
+    echo "Checking Secure Boot status..." && \
+    mokutil --sb-state
+
 # Multi-Stage Build for Secure Enterprise Deployment
 FROM ubuntu:24.04 AS build
 
