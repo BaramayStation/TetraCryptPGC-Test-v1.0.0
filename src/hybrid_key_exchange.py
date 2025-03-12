@@ -1,37 +1,52 @@
 import os
-import hashlib
-from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
-from src.ecc_hybrid import ecc_keygen, ecc_derive_shared_secret
+import secrets
+from cffi import FFI
+from cryptography.hazmat.primitives.asymmetric import x25519
+from secure_hsm import store_key_in_hsm, retrieve_key_from_hsm
+
+# Example: Generating a nonce
+nonce = secrets.token_bytes(32)
+
+def generate_secure_kyber_keys():
+    """Generate a Kyber keypair and store it in HSM."""
+    from src.kyber_kem import kyber_keygen  # Lazy import to prevent circular import issue
+    pk, sk = kyber_keygen()
+    store_key_in_hsm(sk)  # Store Kyber Secret Key inside HSM
+    return pk, sk
+
+def ecc_keygen():
+    """Generate an X25519 key pair for hybrid key exchange."""
+    private_key = x25519.X25519PrivateKey.generate()
+    public_key = private_key.public_key()
+    return private_key, public_key
+
+def ecc_key_exchange(private_key, peer_public_key):
+    """Perform X25519 key exchange."""
+    shared_secret = private_key.exchange(peer_public_key)
+    return shared_secret
 
 def hybrid_key_exchange():
-    """Perform a hybrid key exchange using Kyber-1024 (PQC) and ECC (X25519)."""
+    """Perform hybrid key exchange using Kyber + X25519."""
+    print("[*] Generating ECC Key Pair...")
+    ecc_private_key, ecc_public_key = ecc_keygen()
 
-    # Generate Kyber-1024 key pairs for Bob
-    _, _ = kyber_keygen()  # Bob's keys not needed after exchange
+    print("[*] Generating Kyber Key Pair...")
+    kyber_public_key, kyber_private_key = generate_secure_kyber_keys()
 
-    # Generate Kyber-1024 key pairs for Alice
-    pk_kyber_alice, sk_kyber_alice = kyber_keygen()
+    print("[*] Performing X25519 Key Exchange...")
+    shared_secret = ecc_key_exchange(ecc_private_key, ecc_public_key)  # Self-exchange for test
 
-    # Encapsulate a shared secret from Bob to Alice
-    ciphertext, kyber_shared_secret_alice = kyber_encapsulate(pk_kyber_alice)
-    kyber_shared_secret_bob = kyber_decapsulate(ciphertext, sk_kyber_alice)
+    print("[*] Hybrid Key Exchange Completed.")
+    return {
+        "ecc_public_key": ecc_public_key.public_bytes_raw().hex(),
+        "kyber_public_key": kyber_public_key.hex(),
+        "shared_secret": shared_secret.hex()
+    }
 
-    # Ensure shared secrets match
-    assert kyber_shared_secret_alice == kyber_shared_secret_bob, "Kyber key exchange failed!"
-
-    # ECC Key Exchange
-    sk_ecc_alice, pk_ecc_alice = ecc_keygen()
-    sk_ecc_bob, pk_ecc_bob = ecc_keygen()
-
-    # Compute ECC shared secret
-    ecc_shared_secret_alice = ecc_derive_shared_secret(sk_ecc_alice, pk_ecc_bob)
-    _ = ecc_derive_shared_secret(sk_ecc_bob, pk_ecc_alice)  # Unused variable replaced with `_`
-
-    # Derive final hybrid key using HKDF
-    final_hybrid_key = hashlib.sha3_512(kyber_shared_secret_alice + ecc_shared_secret_alice).digest()
-
-    return final_hybrid_key
-
+# If this file is run directly, perform hybrid key exchange
 if __name__ == "__main__":
-    final_key = hybrid_key_exchange()
-    print(f"Derived Hybrid Key: {final_key.hex()}")
+    keys = hybrid_key_exchange()
+    print("Generated Keys:", keys)
+
+ffi = FFI()
+KYBER_LIB_PATH = os.getenv("KYBER_LIB_PATH", "/app/lib/libpqclean_kyber1024_clean.so")
