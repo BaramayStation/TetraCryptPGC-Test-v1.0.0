@@ -1,5 +1,11 @@
 # Install Intel SGX and TPM Support
 RUN apt install -y libsgx-enclave-common libtss2-dev opensc libengine-pkcs11-openssl
+# Install SGX Attestation & TPM
+RUN apt install -y libsgx-urts libsgx-quote-ex libtss2-dev
+
+# Enable TPM for Secure Boot
+RUN systemctl enable tpm2-abrmd && \
+    tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
 
 RUN apt install -y mokutil && \
     echo "Checking Secure Boot status..." && \
