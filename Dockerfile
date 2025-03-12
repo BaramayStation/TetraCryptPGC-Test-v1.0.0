@@ -1,3 +1,8 @@
+# Install HSM Support
+RUN apt install -y opensc libengine-pkcs11-openssl \
+    && systemctl enable pcscd \
+    && systemctl start pcscd
+
 # Install Intel SGX and TPM Support
 RUN apt install -y libsgx-enclave-common libtss2-dev opensc libengine-pkcs11-openssl
 # Install SGX Attestation & TPM
