@@ -2,10 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: tetrapgc
+  namespace: security
   labels:
     app: tetrapgc
 spec:
-  replicas: 2
+  replicas: 3  # Ensures high availability
   selector:
     matchLabels:
       app: tetrapgc
@@ -15,20 +16,179 @@ spec:
         app: tetrapgc
     spec:
       securityContext:
-        runAsUser: 1000
-        runAsNonRoot: true
+        runAsNonRoot: true  # Prevents running as root
+        runAsUser: 1000  # Ensures non-root UID
+        seccompProfile:
+          type: RuntimeDefault  # Enforces kernel syscall filtering
+
       containers:
-      - name: tetrapgc-container
-        image: tetrapgc:latest
-        securityContext:
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
-        volumeMounts:
-          - mountPath: /app/local
-            name: pqc-libs
+        - name: tetrapgc
+          image: ghcr.io/abraxas618/tetrapgc:latest
+          imagePullPolicy: Always  # Ensure the latest secure image is used
+          securityContext:
+            allowPrivilegeEscalation: false  # Prevents privilege escalation
+            capabilities:
+              drop:
+                - ALL  # Removes unnecessary capabilities
+            readOnlyRootFilesystem: true  # Prevents filesystem modification
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          ports:
+            - containerPort: 8080
+              name: api
+              protocol: TCP
+
+          envFrom:
+            - secretRef:
+                name: tetrapgc-secrets  # Securely loads secrets from Kubernetes Secrets
+
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true  # Ensures configuration is immutable
+
       volumes:
-      - name: pqc-libs
-        emptyDir: {}
+        - name: config-volume
+          configMap:
+            name: tetrapgc-config  # Centralized configuration management
+
+      nodeSelector:
+        kubernetes.io/arch: amd64  # Ensures it runs only on compatible nodes
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - tetrapgc
+              topologyKey: "kubernetes.io/hostname"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tetrapgc-service
+  namespace: security
+spec:
+  selector:
+    app: tetrapgc
+  ports:
+    - protocol: TCP
+      port: 443  # Enforce TLS
+      targetPort: 8080
+  type: ClusterIP  # Internal service by default
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-only-secure-namespaces
+  namespace: security
+spec:
+  podSelector:
+    matchLabels:
+      app: tetrapgc
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              security: restricted
+      ports:
+        - protocol: TCP
+          port: 443  # Allow only secure TLS traffic
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              security: restricted
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: tetrapgc-pdb
+  namespace: security
+spec:
+  minAvailable: 2  # Ensures at least two pods are always running
+  selector:
+    matchLabels:
+      app: tetrapgc
+
+---
+apiVersion: policy/v1
+kind: PodSecurityPolicy
+metadata:
+  name: tetrapgc-psp
+  namespace: security
+spec:
+  privileged: false  # Prevent privileged containers
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  readOnlyRootFilesystem: true
+  volumes:
+    - configMap
+    - emptyDir
+    - secret
+  hostNetwork: false
+  hostPID: false
+  hostIPC: false
+  runAsUser:
+    rule: MustRunAsNonRoot
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: MustRunAs
+    ranges:
+      - min: 1000
+        max: 1000
+  fsGroup:
+    rule: MustRunAs
+    ranges:
+      - min: 1000
+        max: 1000
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tetrapgc-role
+  namespace: security
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tetrapgc-rolebinding
+  namespace: security
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: security
+roleRef:
+  kind: Role
+  name: tetrapgc-role
+  apiGroup: rbac.authorization.k8s.io
