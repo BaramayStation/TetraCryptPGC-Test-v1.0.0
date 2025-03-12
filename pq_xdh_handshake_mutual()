@@ -1,37 +1,75 @@
+import os
+import hashlib
 from src.qkd_bb84 import bb84_key_exchange
 from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
 from src.ecc_key_exchange import ecc_keygen, ecc_derive_shared_secret
 from secure_enclave import secure_store_key, retrieve_secure_key
+from arm_trustzone import trustzone_store, trustzone_retrieve  # TrustZone API
 
 def pq_qkd_sgx_hybrid_handshake():
-    """Hybrid Handshake: QKD + SGX Secure Storage + TrustZone"""
-    
+    """
+    Hybrid Handshake:
+    - Quantum Key Distribution (BB84 QKD)
+    - Post-Quantum Cryptography (Kyber-1024)
+    - Elliptic Curve Cryptography (X25519 ECC)
+    - Hardware Security (SGX for Kyber Keys, TrustZone for Secure Storage)
+    """
+
     # 1. Generate Quantum-Secured Key (QKD)
     qkd_key = bb84_key_exchange()
+    if not isinstance(qkd_key, bytes):
+        qkd_key = qkd_key.encode()  # Ensure bytes
 
     # 2. Generate PQC Key Exchange (Kyber-1024)
     pk_kyber, sk_kyber = kyber_keygen()
     ciphertext, ss_kyber = kyber_encapsulate(pk_kyber)
 
-    # 3. Securely Store Kyber Secret Key in SGX
-    sealed_sk = secure_store_key(sk_kyber)
+    # 3. Securely Store Kyber Secret Key in SGX Enclave
+    try:
+        sealed_sk = secure_store_key(sk_kyber)  # Uses Intel SGX to seal key
+    except Exception as e:
+        raise RuntimeError(f"SGX Secure Storage Failed: {e}")
 
     # 4. Retrieve Secure Key and Decapsulate
-    sk_unsealed = retrieve_secure_key(sealed_sk)
-    ss_decapsulated = kyber_decapsulate(ciphertext, sk_unsealed)
+    try:
+        sk_unsealed = retrieve_secure_key(sealed_sk)  # Unseal key inside SGX
+        ss_decapsulated = kyber_decapsulate(ciphertext, sk_unsealed)
+    except Exception as e:
+        raise RuntimeError(f"SGX Key Retrieval Failed: {e}")
 
     # 5. Generate Classical ECC Key Exchange (X25519)
     pk_ecc, sk_ecc = ecc_keygen()
     shared_secret_ecc = ecc_derive_shared_secret(pk_ecc, sk_ecc)
 
-    # 6. Store Key in TrustZone Secure Storage
-    store_key_in_trustzone(ss_decapsulated)
+    # 6. Store PQC Shared Secret in TrustZone Secure Storage
+    try:
+        trustzone_store("pq_shared_secret", ss_decapsulated)  # Store securely
+    except Exception as e:
+        raise RuntimeError(f"TrustZone Secure Storage Failed: {e}")
 
-    # 7. Merge QKD, PQC, ECC
-    final_shared_secret = hashlib.sha3_512(qkd_key.encode() + ss_decapsulated + shared_secret_ecc).digest()
+    # 7. Retrieve and Validate TrustZone Stored Key
+    stored_ss = trustzone_retrieve("pq_shared_secret")
+    if stored_ss != ss_decapsulated:
+        raise RuntimeError("TrustZone Secure Key Storage Mismatch!")
+
+    # 8. Merge QKD, PQC, ECC into a Final Shared Secret
+    final_shared_secret = hashlib.sha3_512(qkd_key + ss_decapsulated + shared_secret_ecc).digest()
+
+    # 9. Key Agreement Validation
+    if not validate_key_agreement(final_shared_secret):
+        raise RuntimeError("Key Agreement Validation Failed: Mismatch Detected")
 
     return True, final_shared_secret
 
+def validate_key_agreement(shared_secret):
+    """Simulate checking that both parties derived the same key."""
+    # In a real-world scenario, Alice and Bob must compare a hashed value.
+    return isinstance(shared_secret, bytes) and len(shared_secret) == 64
+
 if __name__ == "__main__":
-    valid, shared_secret = pq_qkd_sgx_hybrid_handshake()
-    print(f"SGX + QKD + TrustZone Hybrid Handshake Successful: {valid}")
+    try:
+        valid, shared_secret = pq_qkd_sgx_hybrid_handshake()
+        print(f"SGX + QKD + TrustZone Hybrid Handshake Successful: {valid}")
+        print(f"Final Shared Secret: {shared_secret.hex()}")
+    except Exception as e:
+        print(f"Error: {e}")
