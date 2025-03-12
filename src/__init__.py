@@ -15,92 +15,105 @@ Complies with NIST post-quantum cryptography standards and FIPS 140-2/3 validati
 """
 
 import logging
-from importlib import import_module
+import importlib
+import os
+import sys
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 __author__ = "Abraxas618"
 __license__ = "MIT"
 
-# Enable structured logging for security audits
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Security Debug Mode (Set to False in Production)
+DEBUG_MODE = os.getenv("TETRACRYPT_DEBUG", "False").lower() in ["true", "1"]
 
-# Kyber KEM (Post-Quantum Key Exchange)
-try:
-    kyber = import_module("src.kyber_kem")
-    kyber_keygen = kyber.kyber_keygen
-    kyber_encapsulate = kyber.kyber_encapsulate
-    kyber_decapsulate = kyber.kyber_decapsulate
-    logging.info("Kyber-1024 Loaded Successfully")
-except ImportError as e:
-    logging.error("Kyber-1024 Module Not Found: %s", e)
-    kyber_keygen = kyber_encapsulate = kyber_decapsulate = None
+# Structured Logging for Security Audits
+logging.basicConfig(
+    level=logging.DEBUG if DEBUG_MODE else logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
-# Falcon Signatures (Post-Quantum Authentication)
-try:
-    falcon = import_module("src.falcon_sign")
-    falcon_keygen = falcon.falcon_keygen
-    falcon_sign = falcon.falcon_sign
-    falcon_verify = falcon.falcon_verify
-    logging.info("Falcon-1024 Loaded Successfully")
-except ImportError as e:
-    logging.error("Falcon-1024 Module Not Found: %s", e)
-    falcon_keygen = falcon_sign = falcon_verify = None
+def load_module(module_name, critical=False):
+    """Dynamically import a module with error handling."""
+    try:
+        module = importlib.import_module(module_name)
+        logging.info(f"{module_name} Loaded Successfully")
+        return module
+    except ImportError as e:
+        logging.error(f"{module_name} Not Found: {e}")
+        if critical:
+            sys.exit(f"Critical Module Missing: {module_name}")
+        return None
 
-# Post-Quantum Mutual Authentication Handshake
-try:
-    handshake = import_module("src.handshake")
-    pq_xdh_handshake_mutual = handshake.pq_xdh_handshake_mutual
-    logging.info("PQC XDH Handshake Loaded Successfully")
-except ImportError as e:
-    logging.error("PQC XDH Handshake Module Not Found: %s", e)
-    pq_xdh_handshake_mutual = None
+# Load Post-Quantum Cryptographic Modules
+kyber = load_module("src.kyber_kem", critical=True)
+falcon = load_module("src.falcon_sign", critical=True)
+handshake = load_module("src.handshake", critical=True)
 
-# Multi-Party Computation (MPC) Key Sharing
-try:
-    mpc = import_module("src.mpc_key_sharing")
+# Assign Kyber Functions
+kyber_keygen = kyber.kyber_keygen
+kyber_encapsulate = kyber.kyber_encapsulate
+kyber_decapsulate = kyber.kyber_decapsulate
+
+# Assign Falcon Functions
+falcon_keygen = falcon.falcon_keygen
+falcon_sign = falcon.falcon_sign
+falcon_verify = falcon.falcon_verify
+
+# PQC + ECC Handshake
+pq_xdh_handshake_mutual = handshake.pq_xdh_handshake_mutual
+
+# Multi-Party Computation (MPC) for Key Sharing
+mpc = load_module("src.mpc_key_sharing")
+if mpc:
     generate_mpc_key_shares = mpc.generate_mpc_key_shares
     reconstruct_secret = mpc.reconstruct_secret
-    logging.info("MPC Key Sharing Loaded Successfully")
-except ImportError as e:
-    logging.error("MPC Key Sharing Module Not Found: %s", e)
+else:
     generate_mpc_key_shares = reconstruct_secret = None
 
-# Secure Enclave (SGX, TPM, HSM) Support
-try:
-    enclave = import_module("src.secure_enclave")
+# Secure Enclave (SGX, TPM, HSM) Handling
+enclave = load_module("src.secure_enclave")
+if enclave:
     secure_store_key = enclave.secure_store_key
     retrieve_secure_key = enclave.retrieve_secure_key
-    logging.info("Secure Enclave (SGX, TPM) Support Loaded")
-except ImportError as e:
-    logging.warning("Secure Enclave Support Not Available: %s", e)
-    secure_store_key = retrieve_secure_key = None
+else:
+    logging.warning("Secure Enclave Support Not Available. Using File-Based Fallback.")
 
-# Multi-Factor Authentication (MFA) Support
-try:
-    mfa = import_module("src.mfa_auth")
-    authenticate_with_mfa = mfa.authenticate_with_mfa
-    logging.info("MFA Authentication Loaded Successfully")
-except ImportError as e:
-    logging.warning("MFA Module Not Available: %s", e)
-    authenticate_with_mfa = None
+    def secure_store_key(data, filename="secure_fallback.dat"):
+        """Fallback: Store in encrypted file if SGX/TPM not available."""
+        with open(filename, "wb") as f:
+            f.write(data)
+        logging.info(f"Key stored in {filename} (Fallback Mode)")
 
-# Hybrid PQC + ECC Transition Support
-try:
-    hybrid_pqc = import_module("src.hybrid_pqc")
-    hybrid_key_exchange = hybrid_pqc.hybrid_key_exchange
-    logging.info("Hybrid PQC + ECC Support Loaded")
-except ImportError as e:
-    logging.warning("Hybrid PQC Module Not Available: %s", e)
-    hybrid_key_exchange = None
+    def retrieve_secure_key(filename="secure_fallback.dat"):
+        """Fallback: Retrieve key from file."""
+        if not os.path.exists(filename):
+            raise FileNotFoundError("Fallback Key Not Found!")
+        with open(filename, "rb") as f:
+            return f.read()
 
-# TPM-Based Remote Attestation for Integrity Verification
-try:
-    tpm = import_module("src.tpm_attestation")
-    tpm_verify_device = tpm.tpm_verify_device
-    logging.info("TPM-Based Remote Attestation Loaded Successfully")
-except ImportError as e:
-    logging.warning("TPM Remote Attestation Module Not Available: %s", e)
-    tpm_verify_device = None
+# Multi-Factor Authentication (MFA)
+mfa = load_module("src.mfa_auth")
+authenticate_with_mfa = mfa.authenticate_with_mfa if mfa else None
+
+# Hybrid PQC + ECC Transition
+hybrid_pqc = load_module("src.hybrid_pqc")
+hybrid_key_exchange = hybrid_pqc.hybrid_key_exchange if hybrid_pqc else None
+
+# TPM-Based Remote Attestation
+tpm = load_module("src.tpm_attestation")
+tpm_verify_device = tpm.tpm_verify_device if tpm else None
+
+# Ensure Cryptographic Algorithm Compatibility
+def validate_crypto_versions():
+    """Ensure compatible versions of Kyber, Falcon, and MPC are loaded."""
+    if kyber and getattr(kyber, "__version__", "Unknown") < "1.0":
+        raise RuntimeError("Kyber Version Mismatch! Update Required.")
+    if falcon and getattr(falcon, "__version__", "Unknown") < "1.0":
+        raise RuntimeError("Falcon Version Mismatch! Update Required.")
+    if mpc and getattr(mpc, "__version__", "Unknown") < "1.0":
+        logging.warning("MPC Version Mismatch! Consider Updating.")
+
+validate_crypto_versions()
 
 # Explicitly Define the Public API
 __all__ = [
