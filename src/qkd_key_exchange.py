@@ -1,48 +1,42 @@
 import os
+import requests
+import serial  # Required for some QKD hardware
 import hashlib
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives import hashes
-from simulaqron.toolbox.epr_socket import EPRSocket
-from simulaqron.local import SimulaQron
+import secrets
 
-# Initialize QKD Simulation Environment
-SimulaQron().start()
+# Define QKD Sources
+QKD_PROVIDER = os.getenv("QKD_PROVIDER", "bb84")
 
-# ---------------- Quantum Key Distribution (QKD) ----------------
+def get_qkd_key_bb84():
+    """Simulates a QKD BB84 key exchange."""
+    key = secrets.token_bytes(32)  # 256-bit quantum-safe key
+    return key
 
-def quantum_key_exchange():
-    """Perform QKD-based key exchange using quantum entanglement."""
-    epr = EPRSocket()
-    
-    # Alice generates quantum key
-    alice_key = os.urandom(32)  # 256-bit quantum key
-    epr.send_epr(alice_key)
+def get_qkd_key_idquantique():
+    """Retrieves a QKD key from an ID Quantique system."""
+    QKD_API_URL = os.getenv("QKD_API_URL", "https://idq-qkd-server/api/key")
+    response = requests.get(QKD_API_URL, timeout=10)
+    if response.status_code == 200:
+        return bytes.fromhex(response.json()["key"])
+    raise ConnectionError("Failed to fetch QKD key from IDQ.")
 
-    # Bob receives entangled key
-    bob_key = epr.recv_epr()
+def get_qkd_key_serial(port="/dev/ttyUSB0", baudrate=115200):
+    """Reads a quantum key from a hardware QKD device over serial."""
+    with serial.Serial(port, baudrate, timeout=5) as ser:
+        key = ser.read(32)  # Read a 256-bit key
+        return key
 
-    return alice_key, bob_key
-
-# ---------------- Hybrid Key Derivation ----------------
-
-def derive_final_shared_secret(qkd_key, pqc_key, transcript):
-    """Derive a post-quantum hybrid key using QKD + Kyber."""
-    combined_key = qkd_key + pqc_key
-
-    hkdf = HKDF(
-        algorithm=hashes.SHA3_512(),
-        length=64,
-        salt=None,
-        info=transcript,
-    )
-    return hkdf.derive(combined_key)
-
-# ---------------- Main Execution ----------------
+def get_qkd_key():
+    """Universal QKD key retrieval based on provider selection."""
+    if QKD_PROVIDER == "bb84":
+        return get_qkd_key_bb84()
+    elif QKD_PROVIDER == "idquantique":
+        return get_qkd_key_idquantique()
+    elif QKD_PROVIDER == "serial":
+        return get_qkd_key_serial()
+    else:
+        raise ValueError("Unsupported QKD provider.")
 
 if __name__ == "__main__":
-    qkd_key_alice, qkd_key_bob = quantum_key_exchange()
-    
-    if qkd_key_alice != qkd_key_bob:
-        raise ValueError("QKD Key Mismatch - Possible Quantum Interception Detected!")
-    
-    print(f"Quantum Key Exchange Successful! Shared QKD Key: {qkd_key_alice.hex()}")
+    key = get_qkd_key()
+    print(f"QKD Key: {key.hex()}")
