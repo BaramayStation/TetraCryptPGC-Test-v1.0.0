@@ -1,24 +1,27 @@
-from secure_enclave import secure_store_key, retrieve_secure_key
-from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
+from secure_hsm import retrieve_key_from_hsm
+from src.kyber_kem import kyber_encapsulate, kyber_decapsulate
+from src.falcon_sign import falcon_sign, falcon_verify
 
-def pq_xdh_sgx_handshake():
-    """Perform a post-quantum handshake inside an SGX enclave."""
+def pq_xdh_hsm_handshake():
+    """Perform a post-quantum handshake using HSM-stored keys."""
     
-    # Generate Kyber keypair
-    pk_kyber, sk_kyber = kyber_keygen()
-
-    # Store the secret key securely in SGX
-    sealed_sk = secure_store_key(sk_kyber)
-
-    # Encapsulate the shared secret
+    # Retrieve Kyber Private Key from HSM
+    sk_kyber = retrieve_key_from_hsm()
+    
+    # Perform key exchange
+    pk_kyber, _ = kyber_keygen()
     ciphertext, ss_kyber = kyber_encapsulate(pk_kyber)
+    ss_decapsulated = kyber_decapsulate(ciphertext, sk_kyber)
 
-    # Retrieve the secret key inside SGX and decapsulate
-    sk_unsealed = retrieve_secure_key(sealed_sk)
-    ss_decapsulated = kyber_decapsulate(ciphertext, sk_unsealed)
+    # Retrieve Falcon Private Key from HSM
+    sk_falcon = retrieve_key_from_hsm()
 
-    return True, ss_decapsulated
+    # Sign & Verify handshake
+    signature = falcon_sign(ss_decapsulated, sk_falcon)
+    valid = falcon_verify(ss_decapsulated, signature, pk_kyber)
+
+    return valid, ss_decapsulated
 
 if __name__ == "__main__":
-    valid, shared_secret = pq_xdh_sgx_handshake()
-    print(f"SGX-Enabled Handshake Successful: {valid}")
+    valid, shared_secret = pq_xdh_hsm_handshake()
+    print(f"HSM-Secured Handshake Successful: {valid}")
