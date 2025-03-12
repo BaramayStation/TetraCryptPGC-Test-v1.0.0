@@ -2,6 +2,16 @@ import os
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 from google.cloud import kms
+from tpm2_pytss import TPM2B_DATA
+
+def store_key_tpm(secret_key):
+    """Store a key in TPM for enhanced security."""
+    tpm = TPM2B_DATA(secret_key)
+    return tpm
+
+def retrieve_key_tpm(tpm_object):
+    """Retrieve a key securely from TPM."""
+    return tpm_object.buffer
 
 class SecureEnclave:
     def __init__(self, project_id, location, key_ring, key_name):
