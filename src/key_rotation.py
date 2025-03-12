@@ -1,41 +1,28 @@
-import time
-import hashlib
-from src.kyber_kem import kyber_keygen
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives import hashes
-import time
-
-ROTATION_INTERVAL = 30 * 24 * 60 * 60  # 30 days
-
-def should_rotate(last_rotation_time):
-    """Check if key rotation is needed based on time elapsed."""
-    return (time.time() - last_rotation_time) > ROTATION_INTERVAL
+import os
 
 class KeyRotation:
-    def __init__(self, rotation_interval=3600):
-        """Initialize key rotation with a defined interval (default: 1 hour)."""
+    def __init__(self, rotation_interval=86400):
+        """
+        Initialize key rotation manager.
+        :param rotation_interval: Time in seconds before key rotates (default: 24 hours)
+        """
         self.rotation_interval = rotation_interval
-        self.current_key = None
+        self.current_key = self.generate_new_key()
         self.last_rotation = time.time()
 
-    def rotate_keys(self):
-        """Generate new ephemeral keys and derive fresh session keys."""
-        pk, sk = kyber_keygen()
-        raw_key_material = hashlib.sha3_512(pk + sk).digest()
+    def generate_new_key(self):
+        """Generate a new secure key"""
+        return os.urandom(32)
 
-        session_key = HKDF(
-            algorithm=hashes.SHA3_512(),
-            length=64,
-            salt=None,
-            info=b"Session Key Rotation",
-        ).derive(raw_key_material)
-
-        self.current_key = session_key
-        self.last_rotation = time.time()
-        return session_key
-
-    def check_rotation(self):
-        """Check if key rotation is required and update keys if necessary."""
+    def get_key(self):
+        """Retrieve current key and rotate if expired"""
         if time.time() - self.last_rotation > self.rotation_interval:
-            return self.rotate_keys()
+            self.current_key = self.generate_new_key()
+            self.last_rotation = time.time()
+            print("Key rotated for security.")
+
         return self.current_key
+
+# Example Usage
+rotator = KeyRotation(rotation_interval=3600)  # Rotate every 1 hour
+rotator.get_key()
