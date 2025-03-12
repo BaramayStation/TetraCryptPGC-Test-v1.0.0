@@ -3,6 +3,14 @@ import secrets
 from cffi import FFI
 from py_ecc.bn128 import G1, G2, add, multiply, pairing  # ZK-SNARK-based pairing operations
 from pqcrypto.sign import dilithium2
+from secure_hsm import store_key_in_hsm, retrieve_key_from_hsm
+from src.falcon_sign import falcon_keygen
+
+def generate_secure_falcon_keys():
+    """Generate a Falcon keypair and store it in HSM."""
+    pk, sk = falcon_keygen()
+    store_key_in_hsm(sk)  # Store Falcon Secret Key inside HSM
+    return pk, sk
 
 def dilithium_keygen():
     """Generate a Dilithium key pair."""
