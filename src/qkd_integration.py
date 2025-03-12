@@ -1,50 +1,44 @@
+import os
+import requests
+import secrets
 import hashlib
 import hmac
-import secrets
+from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
 
-def qkd_key_verification(qkd_key, device_id, shared_secret):
-    """
-    Validate QKD-derived keys against an HMAC-based entropy verification.
-    Prevents key injection and tampering attacks.
+QKD_PROVIDER = os.getenv("QKD_PROVIDER", "idquantique")
 
-    Parameters:
-    - qkd_key (bytes): The quantum-generated key from QKD.
-    - device_id (str): Unique identifier for the device performing verification.
-    - shared_secret (bytes): A shared secret key for additional entropy-based verification.
-
-    Returns:
-    - bool: True if key verification is successful, False if the key is invalid.
-    """
-
+def get_qkd_key():
+    """Retrieve a quantum-generated key from QKD hardware or a trusted API."""
     try:
-        if not isinstance(qkd_key, bytes) or not isinstance(shared_secret, bytes):
-            raise TypeError("[ERROR] QKD key and shared secret must be byte objects.")
-
-        if len(qkd_key) != len(shared_secret):
-            print("[WARNING] Key length mismatch detected.")
-            return False
-
-        # HMAC verification using SHA3-512
-        hmac_verifier = hmac.new(device_id.encode(), shared_secret, hashlib.sha3_512)
-
-        if hmac.compare_digest(hmac_verifier.digest(), qkd_key):
-            print("[SECURITY] QKD Key successfully verified.")
-            return True  # Key verification successful
-
-        print("[ALERT] Potential QKD session hijacking detected.")
-        return False  # Key does not match, possible attack
-
+        if QKD_PROVIDER == "idquantique":
+            return get_qkd_key_idquantique()
+        elif QKD_PROVIDER == "bb84":
+            return get_qkd_key_bb84()
+        else:
+            raise ValueError("Unsupported QKD provider.")
     except Exception as e:
-        print(f"[ERROR] QKD Key Verification Failed: {e}")
-        return False
+        print(f"[ERROR] QKD key retrieval failed: {e}")
+        print("[FALLBACK] Using Kyber-1024 post-quantum key exchange.")
+        return pqc_fallback_key_exchange()
 
+def get_qkd_key_idquantique():
+    """Fetch a secure QKD key from an ID Quantique QKD system."""
+    QKD_API_URL = os.getenv("QKD_API_URL", "https://qkd-server/api/key")
+    response = requests.get(QKD_API_URL, timeout=10)
+    if response.status_code == 200:
+        return bytes.fromhex(response.json()["key"])
+    raise ConnectionError("Failed to fetch QKD key.")
+
+def get_qkd_key_bb84():
+    """Simulate a QKD BB84 key exchange."""
+    return secrets.token_bytes(32)
+
+def pqc_fallback_key_exchange():
+    """Use Kyber-1024 if QKD is unavailable."""
+    pk, sk = kyber_keygen()
+    ciphertext, shared_secret = kyber_encapsulate(pk)
+    return shared_secret
 
 if __name__ == "__main__":
-    # Simulating a QKD key and shared secret for testing
-    simulated_qkd_key = secrets.token_bytes(64)  # 512-bit QKD key
-    simulated_shared_secret = secrets.token_bytes(64)  # 512-bit shared secret
-    device_identifier = "tetrapgc-node1"
-
-    # Validate the QKD key
-    verification_result = qkd_key_verification(simulated_qkd_key, device_identifier, simulated_shared_secret)
-    print(f"QKD Key Verification Result: {verification_result}")
+    key = get_qkd_key()
+    print(f"QKD Secure Key: {key.hex()}")
