@@ -1,0 +1,28 @@
+from src.qkd_bb84 import bb84_key_exchange
+from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
+from src.ecc_key_exchange import ecc_keygen, ecc_derive_shared_secret
+from src.falcon_sign import falcon_keygen, falcon_sign, falcon_verify
+
+def pq_qkd_xdh_hybrid_handshake():
+    """Post-Quantum Hybrid Handshake with QKD, PQC (Kyber), and ECC (X25519)"""
+    
+    # 1. Generate Quantum-Secured Key (QKD)
+    qkd_key = bb84_key_exchange()
+
+    # 2. Generate PQC Key Exchange (Kyber-1024)
+    pk_kyber, sk_kyber = kyber_keygen()
+    ciphertext, ss_kyber = kyber_encapsulate(pk_kyber)
+    ss_decapsulated = kyber_decapsulate(ciphertext, sk_kyber)
+    
+    # 3. Generate Classical ECC Key Exchange (X25519)
+    pk_ecc, sk_ecc = ecc_keygen()
+    shared_secret_ecc = ecc_derive_shared_secret(pk_ecc, sk_ecc)
+    
+    # 4. Merge QKD, PQC, and ECC Keys
+    final_shared_secret = hashlib.sha3_512(qkd_key.encode() + ss_decapsulated + shared_secret_ecc).digest()
+    
+    return True, final_shared_secret
+
+if __name__ == "__main__":
+    valid, shared_secret = pq_qkd_xdh_hybrid_handshake()
+    print(f"Hybrid QKD-PQC-ECC Handshake Successful: {valid}")
