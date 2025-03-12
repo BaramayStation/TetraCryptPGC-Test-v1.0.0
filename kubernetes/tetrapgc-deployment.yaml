@@ -12,3 +12,113 @@ spec:
     rule: MustRunAs
   seccompProfile:
     type: RuntimeDefault
+  volumes:
+    - type: configMap
+    - type: secret
+    - type: persistentVolumeClaim
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tetrapgc-config
+data:
+  LOG_LEVEL: "INFO"
+
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tls-secret
+type: kubernetes.io/tls
+data:
+  tls.crt: <BASE64_ENCODED_CERTIFICATE>
+  tls.key: <BASE64_ENCODED_PRIVATE_KEY>
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tetrapgc
+  labels:
+    app: tetrapgc
+spec:
+  replicas: 2  # Ensure high availability
+  selector:
+    matchLabels:
+      app: tetrapgc
+  template:
+    metadata:
+      labels:
+        app: tetrapgc
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+      containers:
+      - name: tetrapgc-container
+        image: abraxas618/tetrapgc:latest
+        ports:
+          - containerPort: 443
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        envFrom:
+          - configMapRef:
+              name: tetrapgc-config
+        volumeMounts:
+          - name: tls-cert
+            mountPath: "/etc/tls"
+            readOnly: true
+      volumes:
+        - name: tls-cert
+          secret:
+            secretName: tls-secret
+      restartPolicy: Always
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: tetrapgc-service
+spec:
+  selector:
+    app: tetrapgc
+  ports:
+    - protocol: TCP
+      port: 443
+      targetPort: 443
+  type: ClusterIP
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tetrapgc-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+spec:
+  tls:
+    - hosts:
+        - tetrapgc.example.com
+      secretName: tls-secret
+  rules:
+    - host: tetrapgc.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tetrapgc-service
+                port:
+                  number: 443
