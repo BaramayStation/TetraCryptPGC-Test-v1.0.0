@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tetrapgc
+  labels:
+    app: tetrapgc
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tetrapgc
+  template:
+    metadata:
+      labels:
+        app: tetrapgc
+    spec:
+      containers:
+      - name: tetrapgc
+        image: tetrapgc:latest
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+          - name: seccomp-profile
+            mountPath: /app/seccomp_profile.json
+            readOnly: true
+      volumes:
+        - name: seccomp-profile
+          configMap:
+            name: seccomp-config
