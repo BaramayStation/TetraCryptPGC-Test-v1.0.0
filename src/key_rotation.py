@@ -1,4 +1,5 @@
-import os
+import time
+import secrets
 
 class KeyRotation:
     def __init__(self, rotation_interval=86400):
@@ -11,8 +12,8 @@ class KeyRotation:
         self.last_rotation = time.time()
 
     def generate_new_key(self):
-        """Generate a new secure key"""
-        return os.urandom(32)
+        """Generate a new secure key using secrets.token_bytes"""
+        return secrets.token_bytes(32)  # 32-byte cryptographic key
 
     def get_key(self):
         """Retrieve current key and rotate if expired"""
@@ -25,4 +26,4 @@ class KeyRotation:
 
 # Example Usage
 rotator = KeyRotation(rotation_interval=3600)  # Rotate every 1 hour
-rotator.get_key()
+print(f"Generated Secure Key: {rotator.get_key().hex()}")
