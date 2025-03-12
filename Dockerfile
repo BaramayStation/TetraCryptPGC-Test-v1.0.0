@@ -1,40 +1,46 @@
-# Secure Minimalist Base Image with FIPS Support
-FROM gcr.io/distroless/cc-debian12:latest AS base
+# Multi-Stage Build for Secure Enterprise Deployment
+FROM ubuntu:24.04 AS build
 
-# Enable FIPS 140-3 Compliance
-ENV UBUNTU_FIPS=true
+# Enable FIPS & Harden OS
 RUN apt update && apt install -y ubuntu-fips && update-crypto-policies --set FIPS
 
-# Install dependencies
-RUN apt update && apt install -y --no-install-recommends \
-    python3 python3-pip python3-cffi \
+# Install required dependencies
+RUN apt install -y --no-install-recommends \
+    python3 python3-pip python3-venv \
     build-essential cmake clang git \
-    openssl libssl-dev libpkcs11-helper1 \
-    pcscd libpcsclite1 \
+    libssl-dev libgmp-dev \
+    libpcsclite1 opensc \
     tpm2-tools tpm2-abrmd \
     && rm -rf /var/lib/apt/lists/*
 
-# Enable TPM for Secure Boot & Remote Attestation
-RUN tpm2_startup --clear && \
-    tpm2_pcrread && \
-    tpm2_getrandom 32
+# Install Cloud-Native Tools (Podman & Kubernetes)
+RUN apt install -y podman kubectl containerd runc
 
-# Install PQC Libraries (Kyber & Falcon)
+# Secure container runtime
+RUN mkdir -p /run/user/1000 && chown -R 1000:1000 /run/user/1000
+
+# Clone PQCLEAN for Kyber & Falcon
 RUN git clone --depth 1 https://github.com/PQClean/PQClean.git /app/PQClean
 
 WORKDIR /app/PQClean
 RUN mkdir build && cd build && \
-    cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release -DUSE_AESNI=ON -DUSE_HWRNG=ON \
-          -D_FORTIFY_SOURCE=2 -fstack-protector-strong -D_GLIBCXX_ASSERTIONS .. && \
+    cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release \
+    -DUSE_AESNI=ON -DUSE_HWRNG=ON \
+    -D_FORTIFY_SOURCE=2 -fstack-protector-strong -D_GLIBCXX_ASSERTIONS .. && \
     make -j$(nproc) && \
     mkdir -p /app/lib && \
     cp ./crypto_kem/kyber1024/clean/libpqclean_kyber1024_clean.so /app/lib/ && \
     cp ./crypto_sign/falcon-1024/clean/libpqclean_falcon1024_clean.so /app/lib/
 
-# Harden Runtime Security
-FROM base AS runtime
+# Deploy Secure Runtime
+FROM ubuntu:24.04 AS runtime
 
-# Non-Root User for Execution
+# Set environment variables
+ENV KYBER_LIB_PATH=/app/lib/libpqclean_kyber1024_clean.so
+ENV FALCON_LIB_PATH=/app/lib/libpqclean_falcon1024_clean.so
+ENV LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
+
+# Harden Runtime Security
 RUN addgroup --system tetrapgc && adduser --system --ingroup tetrapgc tetrapgc
 USER tetrapgc
 
@@ -43,11 +49,14 @@ RUN apt install -y selinux-basics selinux-utils apparmor-utils && \
     setenforce 1 && \
     aa-enforce /etc/apparmor.d/*
 
-# Enable Kernel Hardening
-RUN sysctl -w kernel.randomize_va_space=2 && \
-    sysctl -w kernel.dmesg_restrict=1 && \
-    sysctl -w kernel.kptr_restrict=2
+# Copy Secure Application Code
+COPY ./src/ /app/src/
+COPY ./tests/ /app/tests/
+COPY ./requirements.txt /app/
 
-# Seccomp Profile
-COPY seccomp_profile.json /app/seccomp_profile.json
-CMD ["python3", "-m", "unittest", "tests/test_hybrid_handshake.py"]
+# Install Python dependencies securely
+RUN python3 -m venv /app/venv && \
+    /app/venv/bin/pip install --no-cache-dir -r /app/requirements.txt
+
+# Run tests inside Podman sandbox
+CMD ["podman", "run", "--security-opt", "seccomp=/app/seccomp_profile.json", "--read-only", "python3", "-m", "unittest", "tests/test_hybrid_handshake.py"]
