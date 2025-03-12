@@ -1,27 +1,33 @@
-from src.zero_trust import verify_user
-from src.homomorphic_encryption import encrypt_value, compute_secure_sum
+import hashlib
 from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
 from src.falcon_sign import falcon_keygen, falcon_sign, falcon_verify
 
-def secure_handshake(identity: str, token: str):
-    """Perform Zero Trust authentication before cryptographic handshake."""
-    
-    # Zero Trust Authentication
-    if not verify_user(identity, token):
-        raise ValueError("Zero Trust authentication failed.")
+def pq_xdh_handshake_mutual():
+    """Post-Quantum XDH Handshake with ZKP Authentication."""
+    # Step 1: Generate ephemeral key pairs
+    pk_A_kyber, sk_A_kyber = kyber_keygen()
+    pk_A_falcon, sk_A_falcon = falcon_keygen()
+    pk_B_kyber, sk_B_kyber = kyber_keygen()
+    pk_B_falcon, sk_B_falcon = falcon_keygen()
 
-    # Secure Key Exchange (Kyber + Falcon)
-    pk_A, sk_A = kyber_keygen()
-    pk_B, sk_B = kyber_keygen()
-    
-    ciphertext, shared_secret_B = kyber_encapsulate(pk_A)
-    shared_secret_A = kyber_decapsulate(ciphertext, sk_A)
+    # Step 2: Key Exchange
+    ct_B, ss_B_temp = kyber_encapsulate(pk_A_kyber)
+    ss_A_temp = kyber_decapsulate(ct_B, sk_A_kyber)
 
-    # Encrypt Shared Secret for Secure Computation
-    enc_ss_A = encrypt_value(shared_secret_A)
-    enc_ss_B = encrypt_value(shared_secret_B)
+    # Step 3: Generate Transcript for Authentication
+    transcript = hashlib.sha256(
+        pk_A_kyber + pk_B_kyber + ct_B + pk_A_falcon + pk_B_falcon
+    ).digest()
 
-    # Homomorphic Addition of Shared Secrets (Secure Computation)
-    enc_final = compute_secure_sum(enc_ss_A, enc_ss_B)
+    # Step 4: Sign and Generate ZKP proof
+    sig_A, proof_A = falcon_sign(transcript, sk_A_falcon)
+    sig_B, proof_B = falcon_sign(transcript, sk_B_falcon)
 
-    return enc_final
+    # Step 5: Verify Signature and ZKP
+    valid_B = falcon_verify(transcript, sig_B, proof_B, pk_B_falcon)
+    valid_A = falcon_verify(transcript, sig_A, proof_A, pk_A_falcon)
+
+    if not (valid_A and valid_B):
+        raise AuthenticationError("Signature or ZKP verification failed")
+
+    return True, ss_A_temp
