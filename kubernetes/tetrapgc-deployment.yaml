@@ -1,52 +1,11 @@
-apiVersion: policy/v1
-kind: PodSecurityPolicy
-metadata:
-  name: restricted-tetrapgc
-spec:
-  privileged: false
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: true
-  runAsUser:
-    rule: MustRunAsNonRoot
-  seLinux:
-    rule: MustRunAs
-  seccompProfile:
-    type: RuntimeDefault
-  volumes:
-    - type: configMap
-    - type: secret
-    - type: persistentVolumeClaim
-
----
-
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: tetrapgc-config
-data:
-  LOG_LEVEL: "INFO"
-
----
-
-apiVersion: v1
-kind: Secret
-metadata:
-  name: tls-secret
-type: kubernetes.io/tls
-data:
-  tls.crt: <BASE64_ENCODED_CERTIFICATE>
-  tls.key: <BASE64_ENCODED_PRIVATE_KEY>
-
----
-
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: tetrapgc
+  name: tetrapgc-secure
   labels:
     app: tetrapgc
 spec:
-  replicas: 2  # Ensure high availability
+  replicas: 3
   selector:
     matchLabels:
       app: tetrapgc
@@ -56,69 +15,118 @@ spec:
         app: tetrapgc
     spec:
       securityContext:
+        seccompProfile:
+          type: RuntimeDefault
         runAsNonRoot: true
-        fsGroup: 1000
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+        allowPrivilegeEscalation: false
       containers:
-      - name: tetrapgc-container
+      - name: tetrapgc
         image: abraxas618/tetrapgc:latest
-        ports:
-          - containerPort: 443
         securityContext:
-          allowPrivilegeEscalation: false
+          runAsNonRoot: true
           readOnlyRootFilesystem: true
-          capabilities:
-            drop:
-              - ALL
-        envFrom:
-          - configMapRef:
-              name: tetrapgc-config
+          privileged: false
+        env:
+          - name: QKD_PROVIDER
+            value: "bb84"  # Options: bb84, idquantique, serial
+          - name: FIPS_ENABLED
+            value: "true"
+          - name: SECURE_ENCLAVE_MODE
+            value: "SGX"  # Options: SGX, TPM, TrustedZone
+          - name: NETWORK_SECURITY_MODE
+            value: "zero-trust"  
         volumeMounts:
-          - name: tls-cert
-            mountPath: "/etc/tls"
+          - name: tpm-storage
+            mountPath: /dev/tpm0
+          - name: secure-secrets
+            mountPath: /etc/secure-secrets
             readOnly: true
       volumes:
-        - name: tls-cert
+        - name: tpm-storage
+          hostPath:
+            path: /dev/tpm0
+        - name: secure-secrets
           secret:
-            secretName: tls-secret
-      restartPolicy: Always
+            secretName: secure-keys
+      nodeSelector:
+        security.hardware.qkd: "true"  # Ensures deployment on nodes with QKD support
 
 ---
-
 apiVersion: v1
 kind: Service
 metadata:
   name: tetrapgc-service
+  labels:
+    app: tetrapgc
 spec:
   selector:
     app: tetrapgc
   ports:
     - protocol: TCP
       port: 443
-      targetPort: 443
+      targetPort: 8443
   type: ClusterIP
 
 ---
-
 apiVersion: networking.k8s.io/v1
-kind: Ingress
+kind: NetworkPolicy
 metadata:
-  name: tetrapgc-ingress
-  annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+  name: tetrapgc-zero-trust
 spec:
-  tls:
-    - hosts:
-        - tetrapgc.example.com
-      secretName: tls-secret
-  rules:
-    - host: tetrapgc.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: tetrapgc-service
-                port:
-                  number: 443
+  podSelector:
+    matchLabels:
+      app: tetrapgc
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              role: trusted-client
+      ports:
+        - protocol: TCP
+          port: 443
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              role: trusted-server
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+apiVersion: policy/v1
+kind: PodSecurityPolicy
+metadata:
+  name: secure-pod-policy
+spec:
+  privileged: false
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: MustRunAsNonRoot
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: MustRunAs
+    ranges:
+      - min: 1000
+        max: 2000
+  fsGroup:
+    rule: MustRunAs
+    ranges:
+      - min: 1000
+        max: 2000
+  volumes:
+    - "secret"
+    - "configMap"
+    - "emptyDir"
+    - "projected"
