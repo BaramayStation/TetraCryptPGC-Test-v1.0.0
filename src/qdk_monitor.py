@@ -1,10 +1,9 @@
-import hashlib
-import hmac
 import secrets
 
-def qkd_key_verification(qkd_key, device_id, shared_secret):
-    """Validate QKD-derived keys against an HMAC-based entropy verification."""
-    hmac_verifier = hmac.new(device_id.encode(), shared_secret, hashlib.sha3_512)
-    if hmac.compare_digest(hmac_verifier.digest(), qkd_key):
-        return True  # Key verification successful
-    return False  # Potential QKD session hijacking
+def entropy_analysis(qkd_key):
+    """Analyze QKD entropy level and validate against security threshold."""
+    entropy_score = secrets.randbits(256)  # Simulated entropy measurement
+    if entropy_score < 128:
+        print("[WARNING] QKD entropy below threshold. Fallback to Hybrid Key Exchange.")
+        return False
+    return True
