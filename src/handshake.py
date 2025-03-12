@@ -1,40 +1,21 @@
-from secure_hsm import retrieve_key_from_hsm, store_key_in_hsm
-from qkd_key_exchange import quantum_key_exchange, derive_final_shared_secret
-from src.kyber_kem import kyber_encapsulate, kyber_decapsulate
-from src.falcon_sign import falcon_sign, falcon_verify
+from hybrid_key_exchange import hybrid_key_exchange
+from hybrid_signatures import hybrid_generate_signatures, hybrid_verify_signatures
 
-def pq_xdh_qkd_hsm_handshake():
-    """Perform a post-quantum hybrid handshake using QKD, HSM, and Kyber."""
+def pq_xdh_hybrid_handshake():
+    """Perform a hybrid post-quantum handshake using ECC + PQC."""
 
-    # 1️⃣ Retrieve Kyber Key from HSM
-    sk_kyber = retrieve_key_from_hsm()
-    pk_kyber, _ = kyber_keygen()
+    # Step 1: Hybrid Key Exchange (X25519 + Kyber)
+    shared_key = hybrid_key_exchange()
 
-    # 2️⃣ Perform QKD Key Exchange
-    qkd_key_alice, qkd_key_bob = quantum_key_exchange()
-    if qkd_key_alice != qkd_key_bob:
-        raise ValueError("QKD Key Mismatch - Possible Quantum Interception!")
+    # Step 2: Hybrid Signatures (Dilithium + Falcon)
+    message = b"Hybrid Secure Handshake"
+    falcon_sig, falcon_pk, dilithium_sig, dilithium_pk = hybrid_generate_signatures(message)
 
-    # 3️⃣ Perform Kyber Encapsulation
-    ciphertext, pqc_secret_alice = kyber_encapsulate(pk_kyber)
-    pqc_secret_bob = kyber_decapsulate(ciphertext, sk_kyber)
+    # Step 3: Verify Signatures
+    valid = hybrid_verify_signatures(message, falcon_sig, falcon_pk, dilithium_sig, dilithium_pk)
 
-    # 4️⃣ Hybrid Key Derivation (QKD + PQC)
-    transcript = hashlib.sha3_512(ciphertext).digest()
-    final_shared_secret = derive_final_shared_secret(qkd_key_alice, pqc_secret_alice, transcript)
-
-    # 5️⃣ Store Final Key in HSM
-    store_key_in_hsm(final_shared_secret)
-
-    # 6️⃣ Post-Quantum Signature for Authentication
-    sk_falcon = retrieve_key_from_hsm()
-    signature = falcon_sign(final_shared_secret, sk_falcon)
-
-    # 7️⃣ Verify Authentication
-    valid = falcon_verify(final_shared_secret, signature, pk_kyber)
-
-    return valid, final_shared_secret
+    return valid, shared_key
 
 if __name__ == "__main__":
-    valid, shared_secret = pq_xdh_qkd_hsm_handshake()
-    print(f"QKD + HSM + PQC Handshake Successful: {valid}")
+    valid, shared_key = pq_xdh_hybrid_handshake()
+    print(f"Hybrid Handshake Successful: {valid}")
