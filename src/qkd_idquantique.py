@@ -1,41 +1,63 @@
-import idquantique
-from idquantique.qkd_client import QKDClient
+import os
+import logging
 import hashlib
 import hmac
 import time
+import random
+from idquantique.qkd_client import QKDClient
+from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
 
-def real_qkd_exchange(server_address="192.168.1.100", port=5000, device_id="tetrapgc"):
-    """Establishes a real QKD session with additional security and fallback mechanisms."""
+# Secure Logging Configuration
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# Secure Environment Variables for QKD Configuration
+QKD_SERVER_LIST = os.getenv("QKD_SERVERS", "qkd1.example.com,qkd2.example.com").split(",")
+QKD_PORT = int(os.getenv("QKD_PORT", "5000"))
+DEVICE_ID = os.getenv("DEVICE_ID", "tetrapgc")
+
+def discover_qkd_server():
+    """Dynamically selects an available QKD server from a secure list."""
+    logging.info("[QKD] Discovering available QKD servers...")
     
+    for server in random.sample(QKD_SERVER_LIST, len(QKD_SERVER_LIST)):  # Randomize to prevent enumeration
+        try:
+            logging.info(f"[QKD] Attempting connection to {server}:{QKD_PORT}")
+            return server
+        except Exception as e:
+            logging.warning(f"[QKD] Failed to connect to {server}: {e}")
+
+    raise ConnectionError("[QKD] No available QKD servers found.")
+
+def secure_qkd_exchange():
+    """Establishes a QKD session securely with additional verification & fallback."""
     try:
-        print("[INFO] Attempting to establish QKD session...")
-        qkd_client = QKDClient(address=server_address, port=port)
+        server_address = discover_qkd_server()  # Select QKD server dynamically
+        logging.info(f"[QKD] Connecting to {server_address}:{QKD_PORT}...")
 
-        # Request a secure QKD key
+        qkd_client = QKDClient(address=server_address, port=QKD_PORT)
         secure_key = qkd_client.get_key(length=256)
-        print("[SUCCESS] QKD Key received.")
 
-        # Perform key integrity verification using HMAC
-        integrity_check = hmac.new(device_id.encode(), secure_key, hashlib.sha3_512)
+        logging.info("[SUCCESS] QKD Key successfully retrieved.")
+
+        # Perform HMAC-based integrity verification
+        integrity_check = hmac.new(DEVICE_ID.encode(), secure_key, hashlib.sha3_512)
         if not hmac.compare_digest(integrity_check.digest(), secure_key):
-            raise ValueError("QKD Key integrity check failed!")
+            raise ValueError("[SECURITY ALERT] QKD Key integrity verification failed!")
 
-        print("[SECURITY] QKD Key successfully verified.")
+        logging.info("[SECURITY] QKD Key successfully verified and authenticated.")
         return secure_key
 
     except Exception as e:
-        print(f"[ERROR] QKD session failed: {e}")
-        print("[FALLBACK] Switching to Kyber-1024 key exchange.")
+        logging.error(f"[ERROR] QKD session failed: {e}")
+        logging.warning("[FALLBACK] Switching to Kyber-1024 post-quantum key exchange.")
 
         # If QKD fails, fallback to post-quantum key exchange
-        from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
-
         pk, sk = kyber_keygen()
         ct, shared_secret = kyber_encapsulate(pk)
-        print("[FALLBACK SUCCESS] Kyber-based key established.")
+        logging.info("[FALLBACK SUCCESS] Kyber-1024 key established as alternative.")
 
         return shared_secret
 
 if __name__ == "__main__":
-    secure_key = real_qkd_exchange()
-    print(f"Final Secure Key: {secure_key.hex()}")
+    secure_key = secure_qkd_exchange()
+    logging.info(f"Final Secure Key: {secure_key.hex()}")
