@@ -1,3 +1,6 @@
+# Install QKD Libraries
+RUN apt install -y libquantum-dev libqkd-dev simulaqron
+
 # Install HSM Support
 RUN apt install -y opensc libengine-pkcs11-openssl \
     && systemctl enable pcscd \
