@@ -1,21 +1,22 @@
-import os
-import json
+import hashlib
+import time
 
-REVOCATION_LIST = "/app/keys/revoked.json"
+class KeyRevocation:
+    def __init__(self):
+        """Initialize the key revocation system."""
+        self.revoked_keys = {}
 
-def load_revocation_list():
-    """Load the revoked key list from disk."""
-    if not os.path.exists(REVOCATION_LIST):
-        return []
-    with open(REVOCATION_LIST, "r") as f:
-        return json.load(f)
+    def revoke_key(self, public_key, reason="Compromised", expiration=3600):
+        """Revoke a public key, marking it invalid for a specific duration."""
+        key_hash = hashlib.sha3_512(public_key).hexdigest()
+        self.revoked_keys[key_hash] = {"reason": reason, "expires_at": time.time() + expiration}
 
-def revoke_key(key_id: str):
-    """Revoke a key and add it to the revocation list."""
-    revoked_keys = load_revocation_list()
-    revoked_keys.append({"key_id": key_id, "revoked_at": time.time()})
-
-    with open(REVOCATION_LIST, "w") as f:
-        json.dump(revoked_keys, f, indent=4)
-
-    print(f"Key {key_id} revoked successfully.")
+    def is_revoked(self, public_key):
+        """Check if a public key has been revoked."""
+        key_hash = hashlib.sha3_512(public_key).hexdigest()
+        if key_hash in self.revoked_keys:
+            if time.time() > self.revoked_keys[key_hash]["expires_at"]:
+                del self.revoked_keys[key_hash]
+                return False
+            return True
+        return False
