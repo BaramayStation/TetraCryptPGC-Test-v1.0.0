@@ -7,8 +7,7 @@ def hybrid_key_exchange():
     """Perform a hybrid key exchange using Kyber-1024 (PQC) and ECC (X25519)."""
 
     # Generate Kyber-1024 key pairs for Bob
-    _, bob_sk_kyber = kyber_keygen()  # Private key not needed after decapsulation
-    bob_pk_kyber, _ = kyber_keygen()
+    _, _ = kyber_keygen()  # Bob's keys not needed after exchange
 
     # Generate Kyber-1024 key pairs for Alice
     pk_kyber_alice, sk_kyber_alice = kyber_keygen()
