@@ -1,3 +1,6 @@
+# Install Cryptographic Libraries
+RUN apt install -y libssl-dev libpqcrypto-dev
+
 # Install QKD Libraries
 RUN apt install -y libquantum-dev libqkd-dev simulaqron
 
