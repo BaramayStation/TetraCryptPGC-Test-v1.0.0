@@ -4,7 +4,10 @@ from cffi import FFI
 from cryptography.hazmat.primitives.asymmetric import x25519
 from secure_hsm import store_key_in_hsm, retrieve_key_from_hsm
 from src.kyber_kem import kyber_keygen
+import secrets
 
+# Example: Generating a nonce
+nonce = secrets.token_bytes(32)
 def generate_secure_kyber_keys():
     """Generate a Kyber keypair and store it in HSM."""
     pk, sk = kyber_keygen()
