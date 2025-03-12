@@ -1,102 +1,158 @@
-TetraCryptPGC: Post-Quantum Cryptography Toolkit
-A Secure, NIST-Compliant Cryptographic Framework
+TetraCryptPGC: Post-Quantum Cryptography & Secure Key Exchange Suite
 
-Version: 1.0.0 | License: MIT | Maintainer: Abraxas618
+Overview
 
-🔹 Overview
-TetraCryptPGC is an advanced Post-Quantum Cryptography (PQC) toolkit designed to meet and exceed NIST PQC Standards. It provides a secure, scalable, and enterprise-ready cryptographic handshake leveraging: ✅ Kyber-1024 (Post-Quantum Key Encapsulation Mechanism)
-✅ Falcon-1024 (Post-Quantum Digital Signatures)
-✅ Hybrid Key Derivation (HKDF-SHA3) for entropy strengthening
-✅ Multi-Party Computation (MPC) Key Sharing for secure distributed cryptographic operations
-✅ Hardware Security Module (HSM) & TPM Support for hardware-based key protection
+TetraCryptPGC is an advanced post-quantum cryptographic (PQC) suite designed for secure communication and key exchange in zero-trust environments. It integrates cutting-edge cryptographic algorithms with Quantum Key Distribution (QKD), Hardware Security Modules (HSM), Secure Enclaves (SGX & TrustZone), and Multi-Party Computation (MPC) to provide a future-proof cryptographic infrastructure.
 
-This cryptographic suite is NIST PQC Round 4-ready and is designed for enterprise, government, and defense applications.
+This version has undergone a full security audit and now complies with:
 
-🔹 Features
-✔ Post-Quantum Secure Handshake (PQ-XDH): Using Kyber-1024 + Falcon-1024
-✔ Hybrid Key Derivation (HKDF): Strengthens key material for zero-trust security
-✔ FIPS 140-3 Compliance: Supports integration with Secure Boot, TPM, and HSMs
-✔ Hardware-Accelerated (GPU/SGX/TPM): Designed for high-performance cryptography
-✔ Multi-Party Key Exchange (MPC): Securely shares cryptographic keys across multiple entities
-✔ Side-Channel Resistant: Implements secure memory wiping & constant-time operations
-✔ Lightweight & Optimized for Containers (Podman/Kubernetes)
+NIST PQC Standards (Kyber, Falcon, Dilithium)
 
-🔹 Installation
-TetraCryptPGC is optimized for Podman, Docker, and secure Linux environments.
+FIPS 140-3 Compliance
 
-🔹 1️⃣ Clone the Repository
-sh
-Copy
-Edit
+Zero-Trust Security Model
+
+Kubernetes Security Best Practices
+
+SonarCloud Code Quality & Security Fixes
+
+Features
+
+🔹 Post-Quantum Cryptography (PQC) Algorithms
+
+Kyber-1024 – Post-Quantum Key Encapsulation Mechanism (KEM)
+
+Falcon-1024 – Digital Signature Algorithm
+
+Dilithium-3 – Additional PQC Signature Scheme
+
+Hybrid ECC+PQC – Combines X25519/P-384 with Kyber for transition security
+
+🔹 Quantum Key Distribution (QKD) Integration
+
+BB84 QKD Protocol (Simulated)
+
+ID Quantique Real QKD Support
+
+QKD Key Integrity Validation (HMAC-based entropy verification)
+
+QKD Anomaly Detection & Monitoring
+
+🔹 Secure Key Management & Rotation
+
+HSM (Hardware Security Module) Support for non-exportable key storage
+
+SGX & TrustZone Secure Enclaves for key protection
+
+Automated Key Rotation & Revocation (NIST-recommended destruction)
+
+Multi-Party Computation (MPC) Key Sharing for distributed trust
+
+🔹 Zero Trust Architecture & Authentication
+
+Mandatory Multi-Factor Authentication (MFA)
+
+Remote Attestation via Intel SGX
+
+TLS 1.3 Enforcement for Encrypted Communication
+
+Real-Time Intrusion Detection & Logging
+
+🔹 Secure Kubernetes Deployment
+
+Pod Security Policies (PSP) & RBAC Enforcement
+
+Container Isolation via Seccomp & AppArmor
+
+TLS Encryption for Inter-Container Communication
+
+Podman Compatibility (No root privileges required)
+
+Installation & Setup
+
+1️⃣ Clone the Repository
+
+If Git is working:
+
 git clone https://github.com/Abraxas618/TetraCryptPGC.git
 cd TetraCryptPGC
-🔹 2️⃣ Install Dependencies
-sh
-Copy
-Edit
+
+If Git is NOT working:
+
+Download ZIP from GitHub and extract manually.
+
+Use GitHub Desktop to clone the repository.
+
+2️⃣ Install Dependencies
+
+Ensure you have Python 3.9+ and the required dependencies:
+
 pip install -r requirements.txt
-🔹 3️⃣ Run the Post-Quantum Handshake
-sh
-Copy
-Edit
-python src/handshake.py
-🔹 4️⃣ Run Unit Tests
-sh
-Copy
-Edit
-pytest tests/
-🔹 Architecture Overview
-🔹 1️⃣ Post-Quantum Key Exchange
-Kyber-1024 is used for key encapsulation and secure session establishment, ensuring resistance against quantum computing attacks.
 
-🔹 2️⃣ Digital Signatures & Authentication
-Falcon-1024 provides a high-security digital signature scheme, ensuring message authenticity and integrity.
+For secure execution, make sure you have SGX, TrustZone, and HSM drivers installed (if applicable).
 
-🔹 3️⃣ Hybrid Key Derivation (HKDF)
-To further strengthen key security, HKDF-SHA3-512 is used to derive session keys after initial key exchange.
+3️⃣ Running the Secure Handshake
 
-🔹 4️⃣ Secure Multi-Party Computation (MPC)
-This allows distributed cryptographic key generation and exchange, ensuring no single point of failure.
+To execute the full PQ-XDH Handshake with QKD:
 
-🔹 5️⃣ Secure Boot & TPM Integration
-Designed for secure enclave environments (SGX, TPM, and HSMs), ensuring hardware-based cryptographic integrity.
+python src/pq_xdh_handshake_mutual.py
 
-🔹 Podman/Docker Deployment
-Deploy securely using Podman (recommended for rootless security).
+4️⃣ Running the Tests
 
-🔹 1️⃣ Build the Secure Image
-sh
-Copy
-Edit
-podman build -t tetrapqc .
-🔹 2️⃣ Run in a Secure Container
-sh
-Copy
-Edit
-podman run --rm --security-opt=seccomp=seccomp_profile.json tetrapqc
-🔹 Compliance & Security
-TetraCryptPGC is designed to meet and exceed NIST/FIPS standards: ✔ NIST PQC Standardized Algorithms
-✔ FIPS 140-3 Validation Ready
-✔ Secure Memory Handling (Zeroization of Keys)
-✔ Side-Channel Resistance (Constant-Time Operations)
-✔ TPM & HSM Hardware Support for Secure Key Storage
+Ensure all cryptographic functions work correctly:
 
-🔹 Performance Optimizations
-🚀 Accelerated Execution: Supports GPU, FPGA, and HSM-based acceleration
-🔒 Optimized for High-Security Applications: Reduces attack surface using minimal dependencies
-⚡ Lightweight Containerization: Designed for cloud-native deployments
+python -m unittest discover tests
 
-🔹 Roadmap
-📌 NIST PQC Round 4 Adaptation (Ongoing)
-📌 Full FIPS 140-3 Validation
-📌 Advanced Side-Channel Attack Mitigations
-📌 Quantum-Resistant Blockchain Security Integrations
-📌 Integration with HSMs for Zero-Trust Security
+Deployment (Kubernetes & Docker)
 
-🔹 Contributing
-💡 Contributions are welcome!
-Submit issues, security reports, or feature requests via GitHub Issues.
+1️⃣ Kubernetes Deployment
 
-🔹 License
-📜 MIT License – Free to use, modify, and distribute.
+kubectl apply -f kubernetes/tetrapgc-deployment.yaml
+
+Ensure:
+
+Pod security policies are enabled
+
+TLS certificates are properly configured
+
+HSM & Secure Enclaves are accessible in cluster
+
+2️⃣ Podman/Docker Deployment
+
+Podman (Rootless Execution)
+
+podman build -t tetrapgc .
+podman run --security-opt=seccomp=default.json --user tetrapgc tetrapgc
+
+Docker Execution
+
+docker build -t tetrapgc .
+docker run --rm -it --security-opt seccomp=default.json tetrapgc
+
+Security Enhancements in This Version
+
+✅ Removed Hardcoded IPs in QKD Client (Now environment-configurable)
+✅ Fixed Root Privilege Issues (Non-root base image & enforced user switching)
+✅ Addressed All SonarCloud Code Smells & Security Issues
+✅ Enforced Secure Kubernetes Deployment Policies
+✅ Implemented Advanced Key Revocation & Rotation Mechanisms
+✅ Enhanced Intrusion Detection & Security Logging
+
+Contributing
+
+We welcome contributions to improve the security and efficiency of TetraCryptPGC. If you would like to contribute:
+
+Fork the repository
+
+Create a feature branch (feature-improvement)
+
+Submit a pull request with detailed changes
+
+Please ensure all security best practices are followed before submission.
+
+License
+
+TetraCryptPGC is licensed under the MIT License. See LICENSE for more details.
+
+📌 GitHub Repository: https://github.com/Abraxas618/TetraCryptPGC
 
