@@ -1,3 +1,6 @@
+# Install Intel SGX and TPM Support
+RUN apt install -y libsgx-enclave-common libtss2-dev opensc libengine-pkcs11-openssl
+
 RUN apt install -y mokutil && \
     echo "Checking Secure Boot status..." && \
     mokutil --sb-state
