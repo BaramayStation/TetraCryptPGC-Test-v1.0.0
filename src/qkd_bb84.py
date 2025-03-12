@@ -1,32 +1,62 @@
-from qiskit import QuantumCircuit, Aer, transpile, assemble, execute
 import random
+from qunetsim.objects import QuantumContext, Host, Qubit
+from qunetsim.components import Network
+import hashlib
 
-def bb84_key_exchange(n=128):
-    """Simulates a BB84 Quantum Key Distribution (QKD) session"""
-    qc = QuantumCircuit(n, n)
+def bb84_qkd(alice, bob):
+    """
+    Simulate a BB84 Quantum Key Distribution (QKD) between Alice and Bob.
+    """
 
-    # Random Basis Selection
-    alice_basis = [random.choice(["Z", "X"]) for _ in range(n)]
-    alice_bits = [random.randint(0, 1) for _ in range(n)]
+    alice_key = []
+    bob_key = []
+    
+    # Step 1: Alice sends randomly polarized qubits
+    for _ in range(256):  # Generate 256 raw bits
+        bit = random.randint(0, 1)
+        basis = random.choice(['+', 'x'])  # Choose a random basis
+        
+        q = Qubit(alice)
+        if basis == 'x':
+            q.H()
+        if bit == 1:
+            q.X()
+        
+        q.send(bob)
 
-    # Encode in Quantum States
-    for i in range(n):
-        if alice_bits[i] == 1:
-            qc.x(i)
-        if alice_basis[i] == "X":
-            qc.h(i)
+    # Step 2: Bob randomly measures in a basis
+    for _ in range(256):
+        basis = random.choice(['+', 'x'])
+        q = bob.get_data_qubit()
+        
+        if basis == 'x':
+            q.H()
+        
+        bit = q.measure()
+        bob_key.append(bit)
 
-    # Simulate Quantum Channel
-    simulator = Aer.get_backend("qasm_simulator")
-    result = execute(qc, simulator).result()
-    raw_key = list(result.get_counts().keys())[0]
+    # Step 3: Public basis comparison
+    for i in range(len(alice_key)):
+        if alice_key[i][1] == bob_key[i][1]:  # If bases match
+            bob_key.append(alice_key[i][0])  # Keep the bit
 
-    # Key Reconciliation
-    bob_basis = [random.choice(["Z", "X"]) for _ in range(n)]
-    final_key = [alice_bits[i] for i in range(n) if alice_basis[i] == bob_basis[i]]
-
-    return "".join(map(str, final_key))
+    # Final shared key
+    shared_qkd_key = hashlib.sha3_256(bytes(bob_key)).digest()  # 256-bit key
+    return shared_qkd_key
 
 if __name__ == "__main__":
-    secure_key = bb84_key_exchange()
-    print(f"Generated QKD Key: {secure_key}")
+    # Create a quantum network
+    network = Network.get_instance()
+    network.start()
+
+    # Create Alice & Bob
+    alice = Host('Alice')
+    bob = Host('Bob')
+    network.add_host(alice)
+    network.add_host(bob)
+
+    # Execute QKD
+    shared_qkd_key = bb84_qkd(alice, bob)
+    print(f"QKD Shared Key: {shared_qkd_key.hex()}")
+
+    network.stop()
