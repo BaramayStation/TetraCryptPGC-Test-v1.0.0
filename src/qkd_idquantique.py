@@ -3,7 +3,7 @@ import logging
 import hashlib
 import hmac
 import time
-import random
+import secrets  # Secure random module
 from idquantique.qkd_client import QKDClient
 from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
 
@@ -15,11 +15,14 @@ QKD_SERVER_LIST = os.getenv("QKD_SERVERS", "qkd1.example.com,qkd2.example.com").
 QKD_PORT = int(os.getenv("QKD_PORT", "5000"))
 DEVICE_ID = os.getenv("DEVICE_ID", "tetrapgc")
 
+# Use a cryptographically secure random generator
+secure_rng = secrets.SystemRandom()  
+
 def discover_qkd_server():
     """Dynamically selects an available QKD server from a secure list."""
     logging.info("[QKD] Discovering available QKD servers...")
-    
-    for server in random.sample(QKD_SERVER_LIST, len(QKD_SERVER_LIST)):  # Randomize to prevent enumeration
+
+    for server in secure_rng.sample(QKD_SERVER_LIST, len(QKD_SERVER_LIST)):  # Secure random shuffle
         try:
             logging.info(f"[QKD] Attempting connection to {server}:{QKD_PORT}")
             return server
