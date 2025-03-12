@@ -13,3 +13,7 @@ class TestHybridHandshake(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+def test_kat_generation(self):
+    seed = b"fixed_seed_for_testing"
+    expected_output = b"expected_kat_output"  # Replace with actual expected output from your implementation
+    self.assertEqual(generate_kat(seed), expected_output)  # Replace 'generate_kat' with your actual function
