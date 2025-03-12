@@ -35,6 +35,9 @@ logging.basicConfig(
 def load_module(module_name, critical=False):
     """Dynamically import a module with error handling."""
     try:
+        if module_name.startswith("src."):
+            sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
+
         module = importlib.import_module(module_name)
         logging.info(f"{module_name} Loaded Successfully")
         return module
@@ -43,6 +46,7 @@ def load_module(module_name, critical=False):
         if critical:
             sys.exit(f"Critical Module Missing: {module_name}")
         return None
+
 
 # Load Post-Quantum Cryptographic Modules
 kyber = load_module("src.kyber_kem", critical=True)
