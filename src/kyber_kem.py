@@ -1,6 +1,18 @@
 import os
 import secrets
 from cffi import FFI
+from cryptography.hazmat.primitives.asymmetric import x25519
+
+def ecc_keygen():
+    """Generate an X25519 key pair for hybrid key exchange."""
+    private_key = x25519.X25519PrivateKey.generate()
+    public_key = private_key.public_key()
+    return private_key, public_key
+
+def ecc_key_exchange(private_key, peer_public_key):
+    """Perform X25519 key exchange."""
+    shared_secret = private_key.exchange(peer_public_key)
+    return shared_secret
 
 ffi = FFI()
 KYBER_LIB_PATH = os.getenv("KYBER_LIB_PATH", "/app/lib/libpqclean_kyber1024_clean.so")
