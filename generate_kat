@@ -1,6 +1,7 @@
 import os
 import hashlib
 import secrets
+import hmac
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
@@ -15,16 +16,22 @@ SHARED_SECRET_BYTES = 32  # Standard Kyber shared secret length
 DERIVED_KEY_BYTES = 64  # Key length after HKDF expansion
 
 def secure_erase(buffer):
-    """Securely erase sensitive memory after use."""
-    for i in range(len(buffer)):
-        buffer[i] = secrets.randbits(8)
+    """Securely erase sensitive memory."""
+    if isinstance(buffer, bytearray):  # Only works for mutable buffers
+        for i in range(len(buffer)):
+            buffer[i] = secrets.randbits(8)
+    else:
+        raise TypeError("secure_erase() only supports mutable bytearrays.")
 
-def derive_final_shared_secret(raw_secret, transcript):
-    """Use HKDF to derive a more secure session key."""
+def derive_final_shared_secret(raw_secret, transcript, salt=None):
+    """Use HKDF to derive a more secure session key with added salt."""
+    if salt is None:
+        salt = secrets.token_bytes(32)  # Random salt for extra security
+
     hkdf = HKDF(
         algorithm=hashes.SHA3_512(),
         length=DERIVED_KEY_BYTES,
-        salt=None,
+        salt=salt,
         info=transcript,
     )
     return hkdf.derive(raw_secret)
@@ -38,10 +45,13 @@ def generate_kat():
         f.write("# TetraCryptPGC Post-Quantum KAT Log\n\n")
 
         # Generate Key Pairs
-        pk_A_kyber, sk_A_kyber = kyber_keygen()
-        pk_A_falcon, sk_A_falcon = falcon_keygen()
-        pk_B_kyber, sk_B_kyber = kyber_keygen()
-        pk_B_falcon, sk_B_falcon = falcon_keygen()
+        try:
+            pk_A_kyber, sk_A_kyber = kyber_keygen()
+            pk_A_falcon, sk_A_falcon = falcon_keygen()
+            pk_B_kyber, sk_B_kyber = kyber_keygen()
+            pk_B_falcon, sk_B_falcon = falcon_keygen()
+        except Exception as e:
+            raise RuntimeError(f"Key generation failed: {e}")
 
         # Log Public and Private Keys (Hex Format)
         f.write("## Alice's Key Pairs\n")
@@ -57,8 +67,8 @@ def generate_kat():
         ss_A = kyber_decapsulate(ct_B, sk_A_kyber)
 
         # Securely erase ephemeral secret keys
-        secure_erase(sk_A_kyber)
-        secure_erase(sk_B_kyber)
+        secure_erase(bytearray(sk_A_kyber))
+        secure_erase(bytearray(sk_B_kyber))
 
         f.write("\n## Key Exchange\n")
         f.write(f"Ciphertext (Bob to Alice): {ct_B.hex()}\n")
@@ -66,29 +76,30 @@ def generate_kat():
         f.write(f"Shared Secret (Alice): {ss_A.hex()}\n")
 
         # Derive Final Secure Session Key
-        transcript = hashlib.sha3_512(pk_A_kyber + pk_B_kyber + ct_B).digest()
-        derived_ss_A = derive_final_shared_secret(ss_A, transcript)
-        derived_ss_B = derive_final_shared_secret(ss_B, transcript)
+        salt = secrets.token_bytes(32)  # Random salt
+        transcript = hashlib.sha3_512(pk_A_kyber + pk_B_kyber + ct_B + salt).digest()
+        derived_ss_A = derive_final_shared_secret(ss_A, transcript, salt)
+        derived_ss_B = derive_final_shared_secret(ss_B, transcript, salt)
 
         f.write("\n## Derived Session Key\n")
         f.write(f"Session Key (Alice): {derived_ss_A.hex()}\n")
         f.write(f"Session Key (Bob): {derived_ss_B.hex()}\n")
 
         # Authentication
-        sig_A = falcon_sign(derived_ss_A, sk_A_falcon)
-        sig_B = falcon_sign(derived_ss_B, sk_B_falcon)
+        sig_A = falcon_sign(derived_ss_A + salt, sk_A_falcon)
+        sig_B = falcon_sign(derived_ss_B + salt, sk_B_falcon)
 
         # Securely erase ephemeral Falcon keys
-        secure_erase(sk_A_falcon)
-        secure_erase(sk_B_falcon)
+        secure_erase(bytearray(sk_A_falcon))
+        secure_erase(bytearray(sk_B_falcon))
 
         f.write("\n## Signatures\n")
         f.write(f"Alice Signature: {sig_A.hex()}\n")
         f.write(f"Bob Signature: {sig_B.hex()}\n")
 
         # Verification
-        valid_A = falcon_verify(derived_ss_B, sig_A, pk_A_falcon)
-        valid_B = falcon_verify(derived_ss_A, sig_B, pk_B_falcon)
+        valid_A = falcon_verify(derived_ss_B + salt, sig_A, pk_A_falcon)
+        valid_B = falcon_verify(derived_ss_A + salt, sig_B, pk_B_falcon)
 
         f.write("\n## Signature Verification\n")
         f.write(f"Verification (Alice’s sig by Bob): {'Valid' if valid_A else 'Invalid'}\n")
