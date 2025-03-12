@@ -1,30 +1,21 @@
-import os
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives import hashes
-from google.cloud import kms
-from tpm2_pytss import TPM2B_DATA
+from cffi import FFI
 
-def store_key_tpm(secret_key):
-    """Store a key in TPM for enhanced security."""
-    tpm = TPM2B_DATA(secret_key)
-    return tpm
+ffi = FFI()
+sgx = ffi.dlopen("./libsecure_enclave.so")
 
-def retrieve_key_tpm(tpm_object):
-    """Retrieve a key securely from TPM."""
-    return tpm_object.buffer
+ffi.cdef("""
+    sgx_status_t secure_store_key(unsigned char *key, size_t key_size, unsigned char *sealed_data);
+    sgx_status_t retrieve_secure_key(unsigned char *sealed_data, unsigned char *unsealed_key);
+""")
 
-class SecureEnclave:
-    def __init__(self, project_id, location, key_ring, key_name):
-        """Initialize Google Cloud KMS for secure key storage."""
-        self.client = kms.KeyManagementServiceClient()
-        self.key_path = self.client.crypto_key_path(project_id, location, key_ring, key_name)
+def secure_store_key(key):
+    """Store key inside SGX enclave."""
+    sealed_data = ffi.new("unsigned char[64]")
+    sgx.secure_store_key(key, len(key), sealed_data)
+    return bytes(sealed_data)
 
-    def encrypt_key(self, key):
-        """Encrypt a key using Google Cloud KMS."""
-        ciphertext = self.client.encrypt(self.key_path, plaintext=key).ciphertext
-        return ciphertext
-
-    def decrypt_key(self, ciphertext):
-        """Decrypt a key using Google Cloud KMS."""
-        plaintext = self.client.decrypt(self.key_path, ciphertext=ciphertext).plaintext
-        return plaintext
+def retrieve_secure_key(sealed_data):
+    """Retrieve key from SGX enclave."""
+    unsealed_key = ffi.new("unsigned char[32]")
+    sgx.retrieve_secure_key(sealed_data, unsealed_key)
+    return bytes(unsealed_key)
