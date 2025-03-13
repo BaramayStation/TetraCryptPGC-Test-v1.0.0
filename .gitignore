@@ -1,0 +1,8 @@
+# Ignore compiled Python files
+src/__pycache__/
+
+# Ignore virtual environment
+venv/
+
+# Ignore test directory
+test_tetra/
