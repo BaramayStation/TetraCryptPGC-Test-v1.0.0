@@ -1,78 +1,118 @@
 import os
-import secrets
 import logging
+from cryptography.hazmat.primitives.asymmetric import x25519, ec
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cffi import FFI
-from cryptography.hazmat.primitives.asymmetric import x25519
-from secure_hsm import store_key_in_hsm, retrieve_key_from_hsm
 
-# Secure Logging Configuration
+# Secure Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Set the environment variable for KYBER_LIB_PATH to point to the appropriate library
-KYBER_LIB_PATH = os.getenv("KYBER_LIB_PATH", "/app/lib/liboqs.so")
-
-# Initialize FFI (Foreign Function Interface)
+# Load liboqs for post-quantum hybrid key exchange
+LIBOQS_PATH = os.getenv("LIBOQS_PATH", "/usr/local/lib/liboqs.so")
 ffi = FFI()
 
-# Check if the specified library exists before attempting to load it
 try:
-    kyber_lib = ffi.dlopen(KYBER_LIB_PATH)
+    oqs_lib = ffi.dlopen(LIBOQS_PATH)
+    logging.info("liboqs successfully loaded for hybrid key exchange.")
 except Exception as e:
-    raise RuntimeError(f"Could not load Kyber library from {KYBER_LIB_PATH}: {e}")
+    logging.error(f"Could not load liboqs: {e}")
+    raise RuntimeError("liboqs missing or not installed.")
 
-# Define the Kyber KEM functions using liboqs
+# Define ML-KEM (Kyber-1024) KEM functions
 ffi.cdef("""
-    int OQS_KEM_KYBER1024_keypair(unsigned char *pk, unsigned char *sk);
-    int OQS_KEM_KYBER1024_encapsulate(unsigned char *ct, unsigned char *ss, const unsigned char *pk);
-    int OQS_KEM_KYBER1024_decapsulate(unsigned char *ss, const unsigned char *ct, const unsigned char *sk);
+    int OQS_KEM_mlkem_1024_keypair(unsigned char *pk, unsigned char *sk);
+    int OQS_KEM_mlkem_1024_encapsulate(unsigned char *ct, unsigned char *ss, const unsigned char *pk);
+    int OQS_KEM_mlkem_1024_decapsulate(unsigned char *ss, const unsigned char *ct, const unsigned char *sk);
 """)
 
-# Function for generating Kyber keypair and storing it in HSM
-def generate_secure_kyber_keys():
-    """Generate a Kyber keypair and store it in HSM."""
-    pk = ffi.new("unsigned char[1568]")  # Kyber public key size
-    sk = ffi.new("unsigned char[3168]")  # Kyber secret key size
+MLKEM_PUBLICKEYBYTES = 1568
+MLKEM_SECRETKEYBYTES = 3168
+MLKEM_CIPHERTEXTBYTES = 1568
+SHARED_SECRET_BYTES = 32
 
-    # Generate Kyber keypair using liboqs (replace this with the function call for your selected library)
-    ret = kyber_lib.OQS_KEM_KYBER1024_keypair(pk, sk)
+def generate_ecc_keypair(curve="X25519"):
+    """Generate an ECC key pair (X25519 or P-384)."""
+    if curve == "X25519":
+        private_key = x25519.X25519PrivateKey.generate()
+    elif curve == "P-384":
+        private_key = ec.generate_private_key(ec.SECP384R1())
+    else:
+        raise ValueError("Unsupported curve. Choose 'X25519' or 'P-384'.")
+    
+    return private_key, private_key.public_key()
+
+def derive_ecc_shared_secret(private_key, peer_public_key):
+    """Derive a shared secret using ECC Diffie-Hellman with HKDF normalization."""
+    shared_secret = private_key.exchange(peer_public_key)
+
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,  # 256-bit shared secret
+        salt=None,
+        info=b"TetraHybridPQ"
+    )
+    return hkdf.derive(shared_secret)
+
+def mlkem_keygen():
+    """Generate an ML-KEM-1024 key pair."""
+    pk = ffi.new(f"unsigned char[{MLKEM_PUBLICKEYBYTES}]")
+    sk = ffi.new(f"unsigned char[{MLKEM_SECRETKEYBYTES}]")
+
+    ret = oqs_lib.OQS_KEM_mlkem_1024_keypair(pk, sk)
     if ret != 0:
-        raise ValueError("Kyber key generation failed.")
-
-    store_key_in_hsm(sk)  # Store Kyber Secret Key inside HSM
+        raise RuntimeError("ML-KEM key generation failed.")
 
     return bytes(pk), bytes(sk)
 
-# ECC (Elliptic Curve Cryptography) key generation and exchange using X25519
-def ecc_keygen():
-    """Generate an X25519 key pair for hybrid key exchange."""
-    private_key = x25519.X25519PrivateKey.generate()
-    public_key = private_key.public_key()
-    return private_key, public_key
+def mlkem_encapsulate(public_key):
+    """Encapsulate a shared secret using ML-KEM-1024."""
+    ct = ffi.new(f"unsigned char[{MLKEM_CIPHERTEXTBYTES}]")
+    ss = ffi.new(f"unsigned char[{SHARED_SECRET_BYTES}]")
 
-def ecc_key_exchange(private_key, peer_public_key):
-    """Perform X25519 key exchange."""
-    shared_secret = private_key.exchange(peer_public_key)
-    return shared_secret
+    ret = oqs_lib.OQS_KEM_mlkem_1024_encapsulate(ct, ss, public_key)
+    if ret != 0:
+        raise RuntimeError("ML-KEM encapsulation failed.")
+
+    return bytes(ct), bytes(ss)
+
+def mlkem_decapsulate(ciphertext, secret_key):
+    """Decapsulate the shared secret using ML-KEM-1024."""
+    ss = ffi.new(f"unsigned char[{SHARED_SECRET_BYTES}]")
+
+    ret = oqs_lib.OQS_KEM_mlkem_1024_decapsulate(ss, ciphertext, secret_key)
+    if ret != 0:
+        raise RuntimeError("ML-KEM decapsulation failed.")
+
+    return bytes(ss)
 
 def hybrid_key_exchange():
-    """Perform hybrid key exchange using Kyber + X25519."""
+    """Perform a hybrid key exchange using ECC (X25519) and ML-KEM-1024."""
     logging.info("[*] Generating ECC Key Pair...")
-    ecc_private_key, ecc_public_key = ecc_keygen()
+    ecc_private_key, ecc_public_key = generate_ecc_keypair("X25519")
 
-    logging.info("[*] Generating Kyber Key Pair...")
-    kyber_public_key, _ = generate_secure_kyber_keys()  # Replace kyber_private_key with _ since it's not used
+    logging.info("[*] Generating ML-KEM Key Pair...")
+    mlkem_public_key, mlkem_private_key = mlkem_keygen()
 
-    logging.info("[*] Performing X25519 Key Exchange...")
-    shared_secret = ecc_key_exchange(ecc_private_key, ecc_public_key)  # Self-exchange for test
+    logging.info("[*] Performing ECC Key Exchange...")
+    shared_secret_ecc = derive_ecc_shared_secret(ecc_private_key, ecc_public_key)
+
+    logging.info("[*] Performing ML-KEM Encapsulation...")
+    mlkem_ciphertext, shared_secret_mlkem = mlkem_encapsulate(mlkem_public_key)
 
     logging.info("[*] Hybrid Key Exchange Completed.")
+
     return {
         "ecc_public_key": ecc_public_key.public_bytes_raw().hex(),
-        "kyber_public_key": kyber_public_key.hex(),
-        "shared_secret": shared_secret.hex()
+        "mlkem_public_key": mlkem_public_key.hex(),
+        "shared_secret_ecc": shared_secret_ecc.hex(),
+        "shared_secret_mlkem": shared_secret_mlkem.hex()
     }
 
-# If this file is run directly, perform hybrid key exchange
+# Example Usage
 if __name__ == "__main__":
-    keys = hybrid_key_exchange()
-    logging.info(f"Generated Keys: {keys}")
+    try:
+        keys = hybrid_key_exchange()
+        logging.info(f"Generated Hybrid Keys: {keys}")
+        print("Hybrid PQC + ECC Key Exchange Successful ✅")
+    except Exception as e:
+        logging.error(f"Error: {e}")
