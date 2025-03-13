@@ -54,11 +54,11 @@ class PQXDHHandshake:
         logging.info("🔹 Initiating PQXDH Hybrid Key Exchange...")
 
         # Step 1: Generate X25519 Key Pairs
-        alice_xdh_priv, alice_xdh_pub = self.generate_x25519_keys()
+        alice_xdh_priv, _ = self.generate_x25519_keys()
         bob_xdh_priv, bob_xdh_pub = self.generate_x25519_keys()
 
         # Step 2: Execute Kyber-1024 KEM
-        pk_kyber, sk_kyber, ciphertext, shared_secret_kyber = self.perform_kyber_kem()
+        pk_kyber, sk_kyber, _, shared_secret_kyber = self.perform_kyber_kem()
 
         # Step 3: Derive Shared Secret Using HKDF
         shared_secret_xdh = alice_xdh_priv.exchange(bob_xdh_pub)
