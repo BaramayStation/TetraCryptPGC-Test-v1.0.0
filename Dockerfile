@@ -12,6 +12,7 @@ RUN apt update && apt install -y --no-install-recommends \
     clang \
     cmake \
     git \
+    libssl-dev \
     python3 \
     python3-pip \
     python3-venv \
@@ -42,6 +43,9 @@ USER tetrapgc  # Ensuring non-root execution
 
 # Set working directory
 WORKDIR /app
+
+# Update the environment variable for the correct library path for Kyber
+ENV KYBER_LIB_PATH=/app/local/lib/libpqcrystals_kyber1024_ref.so
 
 # Secure Podman execution with Seccomp
 CMD ["python3", "-m", "unittest", "discover", "-s", "tests"]
