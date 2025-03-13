@@ -1,21 +1,52 @@
+import os
+from cffi import FFI
 import hashlib
 import secrets
-from cffi import FFI
 
+# Initialize FFI (Foreign Function Interface)
 ffi = FFI()
-FALCON_LIB_PATH = "./libpqclean_falcon1024_clean.so"
-lib = ffi.dlopen(FALCON_LIB_PATH)
 
+# Set the path to the Falcon library (assuming it's installed globally)
+FALCON_LIB_PATH = os.getenv("FALCON_LIB_PATH", "/usr/local/lib/libpqclean_falcon1024_clean.so")
+
+# Load the Falcon library
+try:
+    lib = ffi.dlopen(FALCON_LIB_PATH)
+except Exception as e:
+    raise RuntimeError(f"Could not load libpqclean Falcon library: {e}")
+
+# Add version check to future-proof against future changes to the libpqclean API
 ffi.cdef("""
-    void PQCLEAN_FALCON1024_CLEAN_keypair(unsigned char *pk, unsigned char *sk);
-    void PQCLEAN_FALCON1024_CLEAN_sign(unsigned char *sig, size_t *siglen, const unsigned char *msg, size_t msglen, const unsigned char *sk);
-    int PQCLEAN_FALCON1024_CLEAN_verify(const unsigned char *sig, size_t siglen, const unsigned char *msg, size_t msglen, const unsigned char *pk);
+    const char *OQS_VERSION;
 """)
+
+# Checking liboqs version
+def check_libpqclean_version():
+    version = ffi.string(lib.OQS_VERSION).decode('utf-8')
+    if version < "0.7.0":
+        raise RuntimeError(f"Old version of libpqclean detected: {version}. Please upgrade to at least version 0.7.0.")
+    else:
+        print(f"Using libpqclean version {version}")
+
+# Call the version check function
+check_libpqclean_version()
+
+# Select algorithm dynamically based on environment variable
+ALGORITHM = os.getenv("TETRACRYPT_ALGORITHM", "FALCON").upper()
+
+if ALGORITHM == "FALCON":
+    ffi.cdef("""
+        void PQCLEAN_FALCON1024_CLEAN_keypair(unsigned char *pk, unsigned char *sk);
+        void PQCLEAN_FALCON1024_CLEAN_sign(unsigned char *sig, size_t *siglen, const unsigned char *msg, size_t msglen, const unsigned char *sk);
+        int PQCLEAN_FALCON1024_CLEAN_verify(const unsigned char *sig, size_t siglen, const unsigned char *msg, size_t msglen, const unsigned char *pk);
+    """)
+else:
+    raise RuntimeError(f"Unknown algorithm: {ALGORITHM}")
 
 FALCON_PUBLICKEYBYTES = 1792
 FALCON_SECRETKEYBYTES = 2304
 FALCON_SIGNATUREBYTES = 1280
-MESSAGE_HASH_BYTES = 32  
+MESSAGE_HASH_BYTES = 32
 
 def secure_erase(buffer):
     """Securely erase memory to prevent key leaks."""
@@ -58,11 +89,11 @@ def falcon_verify(message, signature, public_key):
 if __name__ == "__main__":
     try:
         print("Generating Falcon key pair...")
-        public_key, _ = falcon_keygen()
+        public_key, secret_key = falcon_keygen()
 
         message = b"Secure post-quantum authentication"
         print("Signing message...")
-        signature = falcon_sign(message, _)
+        signature = falcon_sign(message, secret_key)
 
         print("Verifying signature...")
         is_valid = falcon_verify(message, signature, public_key)
