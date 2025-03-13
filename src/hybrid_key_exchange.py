@@ -1,118 +1,61 @@
 import os
 import logging
-from cryptography.hazmat.primitives.asymmetric import x25519, ec
+from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cffi import FFI
+from cryptography.hazmat.primitives import hashes
+from src.ml_kem import ML_KEM  # ✅ Secure FIPS 206 ML-KEM-1024
 
-# Secure Logging
+# ✅ Secure Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Load liboqs for post-quantum hybrid key exchange
-LIBOQS_PATH = os.getenv("LIBOQS_PATH", "/usr/local/lib/liboqs.so")
-ffi = FFI()
+class HybridKeyExchange:
+    """Implements a hybrid post-quantum key exchange using ML-KEM-1024 + X25519."""
 
-try:
-    oqs_lib = ffi.dlopen(LIBOQS_PATH)
-    logging.info("liboqs successfully loaded for hybrid key exchange.")
-except Exception as e:
-    logging.error(f"Could not load liboqs: {e}")
-    raise RuntimeError("liboqs missing or not installed.")
-
-# Define ML-KEM (Kyber-1024) KEM functions
-ffi.cdef("""
-    int OQS_KEM_mlkem_1024_keypair(unsigned char *pk, unsigned char *sk);
-    int OQS_KEM_mlkem_1024_encapsulate(unsigned char *ct, unsigned char *ss, const unsigned char *pk);
-    int OQS_KEM_mlkem_1024_decapsulate(unsigned char *ss, const unsigned char *ct, const unsigned char *sk);
-""")
-
-MLKEM_PUBLICKEYBYTES = 1568
-MLKEM_SECRETKEYBYTES = 3168
-MLKEM_CIPHERTEXTBYTES = 1568
-SHARED_SECRET_BYTES = 32
-
-def generate_ecc_keypair(curve="X25519"):
-    """Generate an ECC key pair (X25519 or P-384)."""
-    if curve == "X25519":
+    @staticmethod
+    def generate_x25519_keys():
+        """Generate an X25519 key pair."""
         private_key = x25519.X25519PrivateKey.generate()
-    elif curve == "P-384":
-        private_key = ec.generate_private_key(ec.SECP384R1())
-    else:
-        raise ValueError("Unsupported curve. Choose 'X25519' or 'P-384'.")
-    
-    return private_key, private_key.public_key()
+        public_key = private_key.public_key()
+        return private_key, public_key
 
-def derive_ecc_shared_secret(private_key, peer_public_key):
-    """Derive a shared secret using ECC Diffie-Hellman with HKDF normalization."""
-    shared_secret = private_key.exchange(peer_public_key)
+    @staticmethod
+    def perform_ml_kem_kem():
+        """Perform ML-KEM-1024 Key Encapsulation Mechanism (KEM)."""
+        logging.info("🔹 Generating ML-KEM-1024 Key Pair...")
+        pk_ml_kem, sk_ml_kem = ML_KEM.generate_keypair()
 
-    hkdf = HKDF(
-        algorithm=hashes.SHA256(),
-        length=32,  # 256-bit shared secret
-        salt=None,
-        info=b"TetraHybridPQ"
-    )
-    return hkdf.derive(shared_secret)
+        logging.info("🔹 Encapsulating Shared Secret with ML-KEM-1024...")
+        ciphertext, shared_secret_ml_kem = ML_KEM.encapsulate(pk_ml_kem)
 
-def mlkem_keygen():
-    """Generate an ML-KEM-1024 key pair."""
-    pk = ffi.new(f"unsigned char[{MLKEM_PUBLICKEYBYTES}]")
-    sk = ffi.new(f"unsigned char[{MLKEM_SECRETKEYBYTES}]")
+        return pk_ml_kem, sk_ml_kem, shared_secret_ml_kem
 
-    ret = oqs_lib.OQS_KEM_mlkem_1024_keypair(pk, sk)
-    if ret != 0:
-        raise RuntimeError("ML-KEM key generation failed.")
+    @staticmethod
+    def hybrid_key_exchange():
+        """Perform a hybrid post-quantum handshake using ML-KEM-1024 + X25519."""
+        logging.info("🔹 Initiating Hybrid ML-KEM-1024 + X25519 Key Exchange...")
 
-    return bytes(pk), bytes(sk)
+        # Step 1: Generate X25519 Key Pairs
+        x25519_priv, x25519_pub = HybridKeyExchange.generate_x25519_keys()
 
-def mlkem_encapsulate(public_key):
-    """Encapsulate a shared secret using ML-KEM-1024."""
-    ct = ffi.new(f"unsigned char[{MLKEM_CIPHERTEXTBYTES}]")
-    ss = ffi.new(f"unsigned char[{SHARED_SECRET_BYTES}]")
+        # Step 2: Execute ML-KEM-1024 KEM
+        pk_ml_kem, sk_ml_kem, shared_secret_ml_kem = HybridKeyExchange.perform_ml_kem_kem()
 
-    ret = oqs_lib.OQS_KEM_mlkem_1024_encapsulate(ct, ss, public_key)
-    if ret != 0:
-        raise RuntimeError("ML-KEM encapsulation failed.")
+        # Step 3: Derive Shared Secret Using X25519
+        shared_secret_x25519 = x25519_priv.exchange(x25519_pub)
 
-    return bytes(ct), bytes(ss)
+        # Step 4: Derive Final Hybrid Shared Secret Using HKDF
+        hkdf = HKDF(
+            algorithm=hashes.SHA3_512(),
+            length=64,
+            salt=None,
+            info=b"TetraCrypt Hybrid Key Exchange"
+        )
+        final_shared_secret = hkdf.derive(shared_secret_x25519 + shared_secret_ml_kem)
 
-def mlkem_decapsulate(ciphertext, secret_key):
-    """Decapsulate the shared secret using ML-KEM-1024."""
-    ss = ffi.new(f"unsigned char[{SHARED_SECRET_BYTES}]")
+        logging.info("✅ Hybrid Key Exchange Successful!")
+        return final_shared_secret, pk_ml_kem, x25519_pub
 
-    ret = oqs_lib.OQS_KEM_mlkem_1024_decapsulate(ss, ciphertext, secret_key)
-    if ret != 0:
-        raise RuntimeError("ML-KEM decapsulation failed.")
-
-    return bytes(ss)
-
-def hybrid_key_exchange():
-    """Perform a hybrid key exchange using ECC (X25519) and ML-KEM-1024."""
-    logging.info("[*] Generating ECC Key Pair...")
-    ecc_private_key, ecc_public_key = generate_ecc_keypair("X25519")
-
-    logging.info("[*] Generating ML-KEM Key Pair...")
-    mlkem_public_key, mlkem_private_key = mlkem_keygen()
-
-    logging.info("[*] Performing ECC Key Exchange...")
-    shared_secret_ecc = derive_ecc_shared_secret(ecc_private_key, ecc_public_key)
-
-    logging.info("[*] Performing ML-KEM Encapsulation...")
-    mlkem_ciphertext, shared_secret_mlkem = mlkem_encapsulate(mlkem_public_key)
-
-    logging.info("[*] Hybrid Key Exchange Completed.")
-
-    return {
-        "ecc_public_key": ecc_public_key.public_bytes_raw().hex(),
-        "mlkem_public_key": mlkem_public_key.hex(),
-        "shared_secret_ecc": shared_secret_ecc.hex(),
-        "shared_secret_mlkem": shared_secret_mlkem.hex()
-    }
-
-# Example Usage
+# ✅ Example Execution
 if __name__ == "__main__":
-    try:
-        keys = hybrid_key_exchange()
-        logging.info(f"Generated Hybrid Keys: {keys}")
-        print("Hybrid PQC + ECC Key Exchange Successful ✅")
-    except Exception as e:
-        logging.error(f"Error: {e}")
+    hybrid_key = HybridKeyExchange.hybrid_key_exchange()
+    logging.info(f"🔑 Established Secure Hybrid Key: {hybrid_key[0].hex()}")
