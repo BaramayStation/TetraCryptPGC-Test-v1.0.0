@@ -1,158 +1,107 @@
-TetraCryptPGC: Post-Quantum Cryptography & Secure Key Exchange Suite
+# TetraCryptPGC: Post-Quantum Cryptography Toolkit
 
-Overview
+## Overview
+TetraCryptPGC is a post-quantum cryptographic framework designed to provide secure key exchange and authentication using lattice-based algorithms. The implementation integrates **Kyber-1024** (Key Encapsulation Mechanism) and **Falcon-1024** (Digital Signature Scheme) to ensure confidentiality, integrity, and mutual authentication in a quantum-resistant manner.
 
-TetraCryptPGC is an advanced post-quantum cryptographic (PQC) suite designed for secure communication and key exchange in zero-trust environments. It integrates cutting-edge cryptographic algorithms with Quantum Key Distribution (QKD), Hardware Security Modules (HSM), Secure Enclaves (SGX & TrustZone), and Multi-Party Computation (MPC) to provide a future-proof cryptographic infrastructure.
+## Features
+- **Post-Quantum Secure Handshake** using Kyber-1024 and Falcon-1024.
+- **Hybrid PQC + ECC Mode** for smooth transition from classical cryptography.
+- **Support for Hardware Security Modules (HSM), TPM, and SGX**.
+- **Multi-Factor Authentication (MFA) and Zero Trust Security**.
+- **Quantum Key Distribution (QKD) Integration** as primary key exchange.
+- **Podman-based containerized deployment** for reproducibility.
 
-This version has undergone a full security audit and now complies with:
+## Components
+The project is structured as follows:
+```
+TetraCryptPGC/
+├── Dockerfile           # Podman build script
+├── README.md            # Documentation
+├── requirements.txt     # Python dependencies
+├── src/
+│   ├── kyber_kem.py     # Kyber-1024 KEM functions
+│   ├── falcon_sign.py   # Falcon-1024 signature functions
+│   ├── handshake.py     # Post-Quantum Extended Diffie-Hellman (PQ-XDH)
+│   ├── qkd_monitor.py   # QKD monitoring and fallback mechanism
+│   ├── secure_enclave.py # SGX, TPM, and TrustZone integrations
+├── tests/
+│   ├── test_handshake.py # Unit tests for key exchange
+│   ├── test_security.py  # Security compliance tests
+│   ├── test_hybrid.py    # Hybrid PQC + ECC handshake verification
+```
 
-NIST PQC Standards (Kyber, Falcon, Dilithium)
+## Installation
+### Prerequisites
+Ensure the following dependencies are installed:
+```bash
+sudo apt install -y python3 python3-pip build-essential cmake clang git
+pip3 install -r requirements.txt
+```
 
-FIPS 140-3 Compliance
+### Building with Podman
+To build and deploy using Podman:
+```bash
+podman build -t tetrapgc .
+podman run --rm tetrapgc
+```
 
-Zero-Trust Security Model
-
-Kubernetes Security Best Practices
-
-SonarCloud Code Quality & Security Fixes
-
-Features
-
-🔹 Post-Quantum Cryptography (PQC) Algorithms
-
-Kyber-1024 – Post-Quantum Key Encapsulation Mechanism (KEM)
-
-Falcon-1024 – Digital Signature Algorithm
-
-Dilithium-3 – Additional PQC Signature Scheme
-
-Hybrid ECC+PQC – Combines X25519/P-384 with Kyber for transition security
-
-🔹 Quantum Key Distribution (QKD) Integration
-
-BB84 QKD Protocol (Simulated)
-
-ID Quantique Real QKD Support
-
-QKD Key Integrity Validation (HMAC-based entropy verification)
-
-QKD Anomaly Detection & Monitoring
-
-🔹 Secure Key Management & Rotation
-
-HSM (Hardware Security Module) Support for non-exportable key storage
-
-SGX & TrustZone Secure Enclaves for key protection
-
-Automated Key Rotation & Revocation (NIST-recommended destruction)
-
-Multi-Party Computation (MPC) Key Sharing for distributed trust
-
-🔹 Zero Trust Architecture & Authentication
-
-Mandatory Multi-Factor Authentication (MFA)
-
-Remote Attestation via Intel SGX
-
-TLS 1.3 Enforcement for Encrypted Communication
-
-Real-Time Intrusion Detection & Logging
-
-🔹 Secure Kubernetes Deployment
-
-Pod Security Policies (PSP) & RBAC Enforcement
-
-Container Isolation via Seccomp & AppArmor
-
-TLS Encryption for Inter-Container Communication
-
-Podman Compatibility (No root privileges required)
-
-Installation & Setup
-
-1️⃣ Clone the Repository
-
-If Git is working:
-
+### Manual Build
+```bash
 git clone https://github.com/Abraxas618/TetraCryptPGC.git
 cd TetraCryptPGC
-
-If Git is NOT working:
-
-Download ZIP from GitHub and extract manually.
-
-Use GitHub Desktop to clone the repository.
-
-2️⃣ Install Dependencies
-
-Ensure you have Python 3.9+ and the required dependencies:
-
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
+```
 
-For secure execution, make sure you have SGX, TrustZone, and HSM drivers installed (if applicable).
+## Usage
+### Running the Handshake Protocol
+To execute the PQ-XDH handshake with Kyber-1024 and Falcon-1024:
+```bash
+python3 src/handshake.py
+```
 
-3️⃣ Running the Secure Handshake
+### Running Unit Tests
+```bash
+python3 -m unittest discover -s tests
+```
 
-To execute the full PQ-XDH Handshake with QKD:
+## Security Features
+### Post-Quantum Cryptography
+- **Kyber-1024** for secure key encapsulation.
+- **Falcon-1024** for mutual authentication.
+- **Dilithium-3 (optional)** as an alternative signature scheme.
 
-python src/pq_xdh_handshake_mutual.py
+### Zero Trust Security
+- Multi-Factor Authentication (MFA) using smart cards.
+- Remote attestation with TPM and SGX.
+- Quantum entropy analysis for QKD validation.
 
-4️⃣ Running the Tests
+## Deployment
+### Kubernetes Deployment
+Use `tetrapqc_deployment.yaml` for container orchestration:
+```bash
+kubectl apply -f tetrapqc_deployment.yaml
+```
 
-Ensure all cryptographic functions work correctly:
+### Secure Storage with HSM
+Enable HSM storage for keys:
+```bash
+export USE_HSM=true
+```
 
-python -m unittest discover tests
+## Roadmap
+- **FIPS 140-3 Certification Compliance**
+- **Full QKD Integration with ID Quantique Systems**
+- **Expansion to Dilithium Signatures for Flexible Authentication**
+- **Further Performance Optimization for Large-Scale Deployments**
 
-Deployment (Kubernetes & Docker)
+## References
+- **NIST PQC Standardization**: [https://csrc.nist.gov/projects/post-quantum-cryptography](https://csrc.nist.gov/projects/post-quantum-cryptography)
+- **Kyber-1024 Specification**: [https://pq-crystals.org/kyber](https://pq-crystals.org/kyber)
+- **Falcon-1024 Specification**: [https://falcon-sign.info](https://falcon-sign.info)
+- **PQCLEAN Library**: [https://github.com/PQClean/PQClean](https://github.com/PQClean/PQClean)
 
-1️⃣ Kubernetes Deployment
-
-kubectl apply -f kubernetes/tetrapgc-deployment.yaml
-
-Ensure:
-
-Pod security policies are enabled
-
-TLS certificates are properly configured
-
-HSM & Secure Enclaves are accessible in cluster
-
-2️⃣ Podman/Docker Deployment
-
-Podman (Rootless Execution)
-
-podman build -t tetrapgc .
-podman run --security-opt=seccomp=default.json --user tetrapgc tetrapgc
-
-Docker Execution
-
-docker build -t tetrapgc .
-docker run --rm -it --security-opt seccomp=default.json tetrapgc
-
-Security Enhancements in This Version
-
-✅ Removed Hardcoded IPs in QKD Client (Now environment-configurable)
-✅ Fixed Root Privilege Issues (Non-root base image & enforced user switching)
-✅ Addressed All SonarCloud Code Smells & Security Issues
-✅ Enforced Secure Kubernetes Deployment Policies
-✅ Implemented Advanced Key Revocation & Rotation Mechanisms
-✅ Enhanced Intrusion Detection & Security Logging
-
-Contributing
-
-We welcome contributions to improve the security and efficiency of TetraCryptPGC. If you would like to contribute:
-
-Fork the repository
-
-Create a feature branch (feature-improvement)
-
-Submit a pull request with detailed changes
-
-Please ensure all security best practices are followed before submission.
-
-License
-
-TetraCryptPGC is licensed under the MIT License. See LICENSE for more details.
-
-📌 GitHub Repository: https://github.com/Abraxas618/TetraCryptPGC
+## License
+TetraCryptPGC is licensed under the MIT License. See the `LICENSE` file for details.
 
