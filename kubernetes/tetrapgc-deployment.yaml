@@ -2,11 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: tetrapgc
-  namespace: security
   labels:
     app: tetrapgc
 spec:
-  replicas: 3
+  replicas: 2  # Ensure redundancy
   selector:
     matchLabels:
       app: tetrapgc
@@ -15,83 +14,61 @@ spec:
       labels:
         app: tetrapgc
     spec:
-      serviceAccountName: tetrapgc-sa
-      automountServiceAccountToken: false  # ✅ Prevents auto-mounting service account token (Security Best Practice)
-
       securityContext:
-        runAsNonRoot: true  # ✅ Enforce non-root execution
-        runAsUser: 1000
+        runAsUser: 1001  # Enforce non-root execution
+        runAsNonRoot: true
         seccompProfile:
-          type: RuntimeDefault  # ✅ Secure default seccomp profile
-
+          type: RuntimeDefault
+        capabilities:
+          drop: ["ALL"]  # Remove all unnecessary capabilities
+        readOnlyRootFilesystem: true  # Protect against file tampering
       containers:
-        - name: tetrapgc
-          image: ghcr.io/abraxas618/tetrapgc:v1.2.3  # ✅ Fixed version to prevent supply chain attacks
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            allowPrivilegeEscalation: false  # ✅ Prevents privilege escalation attacks
-            capabilities:
-              drop:
-                - ALL  # ✅ Removes all unnecessary capabilities
-            readOnlyRootFilesystem: true  # ✅ Enforce immutable root filesystem
-            seccompProfile:
-              type: RuntimeDefault
-          resources:
-            requests:
-              cpu: "500m"
-              memory: "512Mi"
-              ephemeral-storage: "1Gi"
-            limits:
-              cpu: "1000m"
-              memory: "1Gi"
-              ephemeral-storage: "2Gi"
+        - name: tetrapgc-container
+          image: baramaystation/tetrapgc-secure:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
-              name: api
-              protocol: TCP
           env:
-            - name: QKD_SERVERS
-              value: "qkd1.example.com,qkd2.example.com"  # ✅ Secure QKD Servers for Post-Quantum Encryption
-            - name: QKD_PORT
-              value: "5000"
-            - name: DEVICE_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name  # ✅ Dynamically fetch pod metadata for unique device IDs
+            - name: FIPS_ENABLED
+              value: "true"
+            - name: LD_LIBRARY_PATH
+              value: "/usr/local/lib:/usr/lib"
+            - name: SLH_DSA_LIB
+              value: "/usr/local/lib/libslh_dsa.so"
+            - name: LIBOQS_PATH
+              value: "/usr/local/lib/liboqs.so"
           volumeMounts:
-            - name: secure-storage
-              mountPath: "/secure_storage"
-              readOnly: false  # ✅ Allow encrypted key storage
-
+            - name: slh-dsa-lib
+              mountPath: /usr/local/lib/libslh_dsa.so
+              readOnly: true
+            - name: liboqs
+              mountPath: /usr/local/lib/liboqs.so
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
       volumes:
-        - name: secure-storage
-          persistentVolumeClaim:
-            claimName: tetrapgc-pvc  # ✅ Ensures encrypted persistent storage
-
+        - name: slh-dsa-lib
+          hostPath:
+            path: /usr/local/lib/libslh_dsa.so
+            type: File
+        - name: liboqs
+          hostPath:
+            path: /usr/local/lib/liboqs.so
+            type: File
+      restartPolicy: Always
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: tetrapgc-service
-  namespace: security
 spec:
   selector:
     app: tetrapgc
   ports:
     - protocol: TCP
-      port: 443
+      port: 8080
       targetPort: 8080
-  type: ClusterIP  # ✅ Secure internal-only service for in-cluster communication
-
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: tetrapgc-pvc
-  namespace: security
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi  # ✅ Persistent encrypted storage for PQC key material
+  type: ClusterIP
