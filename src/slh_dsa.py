@@ -1,81 +1,74 @@
 import os
 import logging
-import secrets
-from cffi import FFI
-from hashlib import sha256
+import hashlib
+import ctypes
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives.asymmetric import ec
 
 # ✅ Secure Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # ✅ Load SLH-DSA Library
-SLH_DSA_LIB_PATH = os.getenv("SLH_DSA_LIB_PATH", "/usr/local/lib/libslh-dsa.so")
-ffi = FFI()
+SLH_DSA_PATH = os.getenv("SLH_DSA_PATH", "/usr/local/lib/libslh_dsa.so")
 
 try:
-    slh_dsa_lib = ffi.dlopen(SLH_DSA_LIB_PATH)
-    logging.info("[✔] SLH-DSA library successfully loaded.")
+    slh_dsa_lib = ctypes.CDLL(SLH_DSA_PATH)
+    logging.info("✅ SLH-DSA Library Loaded Successfully!")
 except Exception as e:
-    logging.error(f"[ERROR] Could not load SLH-DSA library: {e}")
-    raise RuntimeError("SLH-DSA library missing or not installed.")
+    logging.error(f"❌ Failed to load SLH-DSA Library: {e}")
+    raise RuntimeError("SLH-DSA library missing or incorrectly installed.")
 
-# ✅ Define SLH-DSA C Bindings
-ffi.cdef("""
-    int slh_dsa_keygen(unsigned char *pk, unsigned char *sk);
-    int slh_dsa_sign(unsigned char *sig, const unsigned char *msg, size_t msg_len, const unsigned char *sk);
-    int slh_dsa_verify(const unsigned char *sig, const unsigned char *msg, size_t msg_len, const unsigned char *pk);
-""")
-
-SLH_DSA_PUBLICKEYBYTES = 64
-SLH_DSA_SECRETKEYBYTES = 128
-SLH_DSA_SIGNATUREBYTES = 96
-
-class SLH_DSA:
-    """Implements FIPS 205 SLH-DSA for Stateless Hash-based Signatures."""
+class SLHDSA:
+    """Implements SLH-DSA (FIPS 205) for post-quantum digital signatures."""
 
     @staticmethod
     def generate_keypair():
         """Generate an SLH-DSA key pair."""
-        pk = ffi.new(f"unsigned char[{SLH_DSA_PUBLICKEYBYTES}]")
-        sk = ffi.new(f"unsigned char[{SLH_DSA_SECRETKEYBYTES}]")
+        public_key = ctypes.create_string_buffer(64)
+        private_key = ctypes.create_string_buffer(128)
 
-        ret = slh_dsa_lib.slh_dsa_keygen(pk, sk)
+        ret = slh_dsa_lib.slh_dsa_keygen(public_key, private_key)
         if ret != 0:
             raise RuntimeError("SLH-DSA key generation failed.")
 
-        return bytes(pk), bytes(sk)
+        return public_key.raw, private_key.raw
 
     @staticmethod
     def sign_message(message, private_key):
         """Sign a message using SLH-DSA."""
-        sig = ffi.new(f"unsigned char[{SLH_DSA_SIGNATUREBYTES}]")
-        msg_bytes = message.encode() if isinstance(message, str) else message
+        signature = ctypes.create_string_buffer(64)
+        message_hash = hashlib.sha3_512(message).digest()
 
-        ret = slh_dsa_lib.slh_dsa_sign(sig, msg_bytes, len(msg_bytes), private_key)
+        ret = slh_dsa_lib.slh_dsa_sign(signature, message_hash, private_key)
         if ret != 0:
             raise RuntimeError("SLH-DSA signing failed.")
 
-        return bytes(sig)
+        return signature.raw
 
     @staticmethod
-    def verify_signature(signature, message, public_key):
+    def verify_signature(message, signature, public_key):
         """Verify an SLH-DSA signature."""
-        msg_bytes = message.encode() if isinstance(message, str) else message
+        message_hash = hashlib.sha3_512(message).digest()
 
-        ret = slh_dsa_lib.slh_dsa_verify(signature, msg_bytes, len(msg_bytes), public_key)
-        return ret == 0  # ✅ Returns True if valid, False if invalid
+        ret = slh_dsa_lib.slh_dsa_verify(signature, message_hash, public_key)
+        return ret == 0  # 0 means verification successful
 
-# ✅ Example Usage
+# ✅ Example Execution
 if __name__ == "__main__":
-    logging.info("🔹 Testing SLH-DSA Implementation...")
+    logging.info("🔹 Testing SLH-DSA Digital Signatures...")
 
-    pk, sk = SLH_DSA.generate_keypair()
-    logging.info(f"🔑 Public Key: {pk.hex()}")
-    logging.info(f"🔒 Secret Key: {sk.hex()}")
+    # Generate Keypair
+    pub_key, priv_key = SLHDSA.generate_keypair()
+    logging.info(f"✅ SLH-DSA Public Key: {pub_key.hex()}")
 
-    message = "TetraCrypt Secure Message"
-    signature = SLH_DSA.sign_message(message, sk)
+    # Sign a Message
+    message = b"TetraCrypt Secure Signature Test"
+    signature = SLHDSA.sign_message(message, priv_key)
+    logging.info(f"✅ SLH-DSA Signature: {signature.hex()}")
 
-    if SLH_DSA.verify_signature(signature, message, pk):
-        logging.info("[✔] SLH-DSA Signature Verification Passed!")
+    # Verify Signature
+    if SLHDSA.verify_signature(message, signature, pub_key):
+        logging.info("✅ SLH-DSA Signature Verification Successful!")
     else:
-        logging.error("[❌] SLH-DSA Signature Verification Failed!")
+        logging.error("❌ SLH-DSA Signature Verification Failed!")
