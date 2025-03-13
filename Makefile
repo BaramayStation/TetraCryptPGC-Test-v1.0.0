@@ -1,26 +1,38 @@
-# Makefile for TetraCrypt setup
+# 🔹 Makefile for Future-Proofed TetraCryptPGC Setup
 
-# Define variables
-KYBER_REPO_URL = https://github.com/pq-crystals/kyber.git
-KYBER_DIR = lib/kyber
-LIBRARY_PATH = lib/libpqcrystals_kyber1024_ref.so
+# ✅ Define Variables
+LIBOQS_REPO_URL = https://github.com/open-quantum-safe/liboqs.git
+LIBOQS_DIR = lib/liboqs
+LIBRARY_PATH = lib/liboqs.so
+VENV_DIR = venv
+PYTHON = $(VENV_DIR)/bin/python3
+PIP = $(VENV_DIR)/bin/pip
 
-# Target: Setup environment
+# 🔹 Setup: Install Environment & Dependencies
 setup:
-    @echo "Setting up the TetraCrypt environment..."
-    @python3 -m venv venv
-    @source venv/bin/activate && pip install -r requirements.txt
-    @make kyber
+	@echo "🔹 Setting up the TetraCrypt environment..."
+	@python3 -m venv $(VENV_DIR)
+	@$(PIP) install --no-cache-dir -r requirements.txt
+	@make liboqs
 
-# Target: Compile Kyber-1024
-kyber:
-    @echo "Compiling Kyber-1024..."
-    @git clone $(KYBER_REPO_URL) $(KYBER_DIR)
-    @cd $(KYBER_DIR)/ref && make
-    @mv $(KYBER_DIR)/ref/lib/libpqcrystals_kyber1024_ref.so lib/
+# 🔹 Build: Compile `liboqs` for Post-Quantum Cryptography
+liboqs:
+	@echo "🔹 Cloning & Building liboqs (Quantum-Safe Cryptography)..."
+	@if [ ! -d "$(LIBOQS_DIR)" ]; then \
+		git clone --depth 1 $(LIBOQS_REPO_URL) $(LIBOQS_DIR); \
+	fi
+	@mkdir -p $(LIBOQS_DIR)/build && cd $(LIBOQS_DIR)/build && \
+		cmake -DCMAKE_INSTALL_PREFIX=/usr/local .. && \
+		make -j$(nproc) && make install
 
-# Clean target: Cleanup compiled libraries
+# 🔹 Run Tests: Execute Unit Tests
+test:
+	@echo "🔹 Running TetraCrypt Tests..."
+	@$(PYTHON) -m unittest discover -s tests
+
+# 🔹 Clean: Remove Compiled Libraries & Cache
 clean:
-    @echo "Cleaning up..."
-    @rm -rf $(KYBER_DIR)
-    @rm -f $(LIBRARY_PATH)
+	@echo "🧹 Cleaning up build artifacts..."
+	@rm -rf $(LIBOQS_DIR)
+	@rm -rf $(VENV_DIR)
+	@rm -f $(LIBRARY_PATH)
