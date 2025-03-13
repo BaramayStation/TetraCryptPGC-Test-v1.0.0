@@ -21,10 +21,10 @@ RUN apt update && apt install -y --no-install-recommends \
 # Set up a user-space environment for cryptographic libraries
 WORKDIR /app
 RUN mkdir -p /app/local && \
-    git clone --depth 1 https://github.com/PQClean/PQClean.git /app/PQClean
+    git clone --depth 1 https://github.com/open-quantum-safe/liboqs.git /app/liboqs
 
-# Compile PQCLEAN libraries (Kyber-1024, Falcon-1024)
-WORKDIR /app/PQClean
+# Compile liboqs
+WORKDIR /app/liboqs
 RUN mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=/app/local .. && \
     make -j$(nproc) && make install
@@ -44,8 +44,8 @@ USER tetrapgc  # Ensuring non-root execution
 # Set working directory
 WORKDIR /app
 
-# Update the environment variable for the correct library path for Kyber
-ENV KYBER_LIB_PATH=/app/local/lib/libpqcrystals_kyber1024_ref.so
+# Set the library path for Kyber-1024
+ENV KYBER_LIB_PATH=/app/local/lib/liboqs.so
 
 # Secure Podman execution with Seccomp
 CMD ["python3", "-m", "unittest", "discover", "-s", "tests"]
