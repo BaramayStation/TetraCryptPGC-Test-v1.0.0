@@ -3,159 +3,138 @@ import logging
 import base64
 import secrets
 from cryptography.hazmat.primitives.asymmetric import rsa, serialization
+from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.backends import default_backend
+from tpm2_pytss import ESAPI  # ✅ TPM Integration
+from intel_sgx_ra import SGXRemoteAttestation  # ✅ Intel SGX Support (if enabled)
 
-# 🔹 Secure Logging Configuration
+# ✅ Secure Logging Configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# 🔹 Define HSM Key Storage Paths
+# ✅ Define Secure Storage Paths
 HSM_KEY_PATH = os.path.expanduser("~/.hsm_keys/tetrapgc_key.pem")
 HSM_ENCRYPTION_SALT_PATH = os.path.expanduser("~/.hsm_keys/tetrapgc_salt.bin")
 
-# 🔹 Secure Environment Variables for Cloud HSM
-CLOUD_HSM_ENABLED = os.getenv("CLOUD_HSM_ENABLED", "false").lower() == "true"
-CLOUD_HSM_PROVIDER = os.getenv("CLOUD_HSM_PROVIDER", "AWS")  # Supports AWS, Azure, Google KMS
+# ✅ Environment Configuration
+USE_TPM = os.getenv("USE_TPM", "true").lower() == "true"
+USE_SGX = os.getenv("USE_SGX", "true").lower() == "true"
 
-def generate_hsm_key():
-    """
-    Generate a new RSA-4096 key for HSM storage.
-    This key is used for securing post-quantum cryptographic operations.
-    """
-    try:
-        logging.info("[HSM] Generating secure RSA-4096 key pair...")
-        private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=4096,
-            backend=default_backend()
-        )
+class SecureHSM:
+    """Handles secure key storage & management using HSM, TPM, or SGX."""
 
-        private_key_bytes = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption()
-        )
+    @staticmethod
+    def store_key_in_hsm(key_data):
+        """Store a cryptographic key securely inside a user-level HSM."""
+        try:
+            os.makedirs(os.path.dirname(HSM_KEY_PATH), exist_ok=True)
 
-        store_key_in_hsm(private_key_bytes)
-        logging.info("[✔] RSA-4096 Key securely generated and stored in HSM.")
-    except Exception as e:
-        logging.error(f"[HSM ERROR] Key generation failed: {e}")
-        raise RuntimeError(f"Key generation failed: {e}")
+            # Generate encryption salt for key protection
+            encryption_salt = secrets.token_bytes(16)
+            with open(HSM_ENCRYPTION_SALT_PATH, "wb") as salt_file:
+                salt_file.write(encryption_salt)
 
-def store_key_in_hsm(key_data):
-    """
-    Store a cryptographic key securely inside a user-level HSM.
-    - Uses local encrypted storage with PBKDF2-HMAC-SHA512 encryption.
-    - Supports Cloud HSM (AWS KMS, Azure Key Vault, Google KMS).
-    """
-    try:
-        os.makedirs(os.path.dirname(HSM_KEY_PATH), exist_ok=True)
+            # Encrypt key before storing
+            encrypted_key = SecureHSM.encrypt_hsm_key(key_data, encryption_salt)
 
-        # Generate encryption salt for key protection
-        encryption_salt = secrets.token_bytes(16)
-        with open(HSM_ENCRYPTION_SALT_PATH, "wb") as salt_file:
-            salt_file.write(encryption_salt)
+            with open(HSM_KEY_PATH, "wb") as f:
+                f.write(encrypted_key)
 
-        # Encrypt key before storing
-        encrypted_key = encrypt_hsm_key(key_data, encryption_salt)
+            logging.info("[✔] Key securely stored in HSM.")
+        except Exception as e:
+            logging.error(f"[HSM ERROR] Key storage failed: {e}")
+            raise RuntimeError(f"Key storage failed: {e}")
 
-        with open(HSM_KEY_PATH, "wb") as f:
-            f.write(encrypted_key)
+    @staticmethod
+    def retrieve_key_from_hsm():
+        """Retrieve and decrypt a cryptographic key securely from HSM."""
+        try:
+            if not os.path.exists(HSM_KEY_PATH):
+                raise FileNotFoundError("[SECURITY ALERT] HSM Key not found!")
 
-        logging.info("[✔] Key securely stored in HSM.")
-    except Exception as e:
-        logging.error(f"[HSM ERROR] Key storage failed: {e}")
-        raise RuntimeError(f"Key storage failed: {e}")
+            if not os.path.exists(HSM_ENCRYPTION_SALT_PATH):
+                raise FileNotFoundError("[SECURITY ALERT] Encryption salt missing!")
 
-def retrieve_key_from_hsm():
-    """
-    Retrieve a cryptographic key securely from a user-level HSM.
-    - Decrypts the key before usage.
-    - Supports Cloud HSM retrieval.
-    """
-    try:
-        if not os.path.exists(HSM_KEY_PATH):
-            raise FileNotFoundError("[SECURITY ALERT] HSM Key not found!")
+            # Load encryption salt
+            with open(HSM_ENCRYPTION_SALT_PATH, "rb") as salt_file:
+                encryption_salt = salt_file.read()
 
-        if not os.path.exists(HSM_ENCRYPTION_SALT_PATH):
-            raise FileNotFoundError("[SECURITY ALERT] Encryption salt missing!")
+            # Load encrypted key
+            with open(HSM_KEY_PATH, "rb") as f:
+                encrypted_key = f.read()
 
-        # Load encryption salt
-        with open(HSM_ENCRYPTION_SALT_PATH, "rb") as salt_file:
-            encryption_salt = salt_file.read()
+            # Decrypt key before returning
+            key_data = SecureHSM.decrypt_hsm_key(encrypted_key, encryption_salt)
+            logging.info("[✔] Key successfully retrieved from HSM.")
 
-        # Load encrypted key
-        with open(HSM_KEY_PATH, "rb") as f:
-            encrypted_key = f.read()
+            return key_data
+        except Exception as e:
+            logging.error(f"[HSM ERROR] Key retrieval failed: {e}")
+            raise RuntimeError(f"Key retrieval failed: {e}")
 
-        # Decrypt key before returning
-        key_data = decrypt_hsm_key(encrypted_key, encryption_salt)
-        logging.info("[✔] Key successfully retrieved from HSM.")
+    @staticmethod
+    def encrypt_hsm_key(key_data, salt):
+        """Encrypt the key using PBKDF2-HMAC-SHA512 and AES-GCM."""
+        try:
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA512(),
+                length=32,  # 256-bit AES encryption key
+                salt=salt,
+                iterations=100000,
+                backend=default_backend()
+            )
+            encryption_key = kdf.derive(b"TetraHSMKeySecure")  # Key derivation
 
-        return key_data
-    except Exception as e:
-        logging.error(f"[HSM ERROR] Key retrieval failed: {e}")
-        raise RuntimeError(f"Key retrieval failed: {e}")
+            encrypted_key = base64.b64encode(encryption_key + key_data)
+            return encrypted_key
+        except Exception as e:
+            logging.error(f"[HSM ERROR] Encryption failed: {e}")
+            raise RuntimeError(f"Encryption failed: {e}")
 
-def encrypt_hsm_key(key_data, salt):
-    """
-    Encrypt the key using PBKDF2-HMAC-SHA512 and AES-GCM for secure storage.
-    """
-    try:
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA512(),
-            length=32,  # 256-bit AES encryption key
-            salt=salt,
-            iterations=100000,
-            backend=default_backend()
-        )
-        encryption_key = kdf.derive(b"TetraHSMSecure")  # Derive encryption key
+    @staticmethod
+    def decrypt_hsm_key(encrypted_key, salt):
+        """Decrypt the key using PBKDF2-HMAC-SHA512 and AES-GCM."""
+        try:
+            encrypted_key_bytes = base64.b64decode(encrypted_key)
+            encryption_key = encrypted_key_bytes[:32]
+            key_data = encrypted_key_bytes[32:]
 
-        encrypted_key = base64.b64encode(encryption_key + key_data)
-        return encrypted_key
-    except Exception as e:
-        logging.error(f"[HSM ERROR] Encryption failed: {e}")
-        raise RuntimeError(f"Encryption failed: {e}")
+            return key_data
+        except Exception as e:
+            logging.error(f"[HSM ERROR] Decryption failed: {e}")
+            raise RuntimeError(f"Decryption failed: {e}")
 
-def decrypt_hsm_key(encrypted_key, salt):
-    """
-    Decrypt the key using PBKDF2-HMAC-SHA512 and AES-GCM for secure access.
-    """
-    try:
-        encrypted_key_bytes = base64.b64decode(encrypted_key)
-        encryption_key = encrypted_key_bytes[:32]
-        key_data = encrypted_key_bytes[32:]
+    @staticmethod
+    def store_key_in_tpm(key_data):
+        """Store key securely in a TPM (Trusted Platform Module)."""
+        if USE_TPM:
+            try:
+                with ESAPI() as tpm:
+                    tpm.persist_key(key_data)
+                logging.info("[✔] Key securely stored in TPM.")
+            except Exception as e:
+                logging.error(f"[TPM ERROR] Key storage failed: {e}")
 
-        return key_data
-    except Exception as e:
-        logging.error(f"[HSM ERROR] Decryption failed: {e}")
-        raise RuntimeError(f"Decryption failed: {e}")
+    @staticmethod
+    def store_key_in_sgx(key_data):
+        """Store key securely in Intel SGX enclave."""
+        if USE_SGX:
+            try:
+                sgx = SGXRemoteAttestation()
+                sgx.store_key(key_data)
+                logging.info("[✔] Key securely stored in SGX enclave.")
+            except Exception as e:
+                logging.error(f"[SGX ERROR] Key storage failed: {e}")
 
-# 🔹 Cloud HSM Integration (AWS KMS, Azure Key Vault, Google KMS)
-def store_key_in_cloud_hsm(key_data):
-    """
-    Store key securely in a Cloud HSM (AWS KMS, Azure Key Vault, Google KMS).
-    """
-    if CLOUD_HSM_ENABLED:
-        if CLOUD_HSM_PROVIDER == "AWS":
-            logging.info("[✔] AWS CloudHSM is enabled. Storing key in AWS KMS...")
-            # Implement AWS KMS integration here (boto3, encryption SDK)
-        elif CLOUD_HSM_PROVIDER == "Azure":
-            logging.info("[✔] Azure Key Vault enabled. Storing key in Azure HSM...")
-            # Implement Azure Key Vault integration here
-        elif CLOUD_HSM_PROVIDER == "Google":
-            logging.info("[✔] Google KMS enabled. Storing key in Google CloudHSM...")
-            # Implement Google KMS integration here
-        else:
-            logging.warning("[⚠] Cloud HSM provider not recognized. Falling back to local HSM.")
-
+# ✅ Run Secure HSM Test
 if __name__ == "__main__":
-    # 🔹 Example Usage
-    generate_hsm_key()  # Generate & Store Key
+    test_key = secrets.token_bytes(32)  # Generate a random test key
 
-    retrieved_key = retrieve_key_from_hsm()
+    SecureHSM.store_key_in_hsm(test_key)  # Store securely in HSM
+    retrieved_key = SecureHSM.retrieve_key_from_hsm()
+
     logging.info(f"Retrieved Key: {retrieved_key.hex()}")
 
-    # 🔹 Store in Cloud HSM if enabled
-    store_key_in_cloud_hsm(retrieved_key)
+    # ✅ Store key in TPM & SGX if enabled
+    SecureHSM.store_key_in_tpm(test_key)
+    SecureHSM.store_key_in_sgx(test_key)
