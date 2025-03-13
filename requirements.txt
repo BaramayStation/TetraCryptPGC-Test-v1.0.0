@@ -1,6 +1,20 @@
-cffi>=1.15.0
-cryptography>=41.0.0
-pycryptodome>=3.18.0
-hkdf>=0.0.3
-requests>=2.31.0
-pycparser
+# ✅ Core Dependencies
+cffi>=1.15.0      # Foreign Function Interface for C bindings
+cryptography>=41.0.0  # Essential for PQC & ECC
+
+# ✅ Post-Quantum Cryptography Libraries
+pycryptodome>=3.18.0  # Secure encryption (AES, RSA, SHA3, etc.)
+liboqs-python  # Bindings for Open Quantum Safe (Kyber, Falcon, Dilithium)
+
+# ✅ Secure Key Derivation & Authentication
+hkdf>=0.0.3  # Hybrid Key Derivation for PQC-ECC transitions
+requests>=2.31.0  # Secure API interactions for QKD & remote attestation
+pycparser  # C parsing for security analysis
+
+# ✅ Hardware-Based Security Enhancements (TPM, SGX, TrustZone)
+tpm2-pytss  # Trusted Platform Module (TPM) Integration
+intel-sgx-ra  # Intel SGX Remote Attestation
+
+# ✅ Homomorphic Encryption (Optional Future Support)
+seal-python  # Microsoft SEAL for Homomorphic Encryption
+tenseal  # CKKS encryption for privacy-preserving AI
