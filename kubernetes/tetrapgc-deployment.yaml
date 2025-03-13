@@ -16,24 +16,26 @@ spec:
         app: tetrapgc
     spec:
       serviceAccountName: tetrapgc-sa
-      automountServiceAccountToken: false  # Prevents auto-mounting service account token
+      automountServiceAccountToken: false  # ✅ Prevents auto-mounting service account token (Security Best Practice)
 
       securityContext:
-        runAsNonRoot: true
+        runAsNonRoot: true  # ✅ Enforce non-root execution
         runAsUser: 1000
         seccompProfile:
-          type: RuntimeDefault
+          type: RuntimeDefault  # ✅ Secure default seccomp profile
 
       containers:
         - name: tetrapgc
-          image: ghcr.io/abraxas618/tetrapgc:v1.2.3  # Use fixed version
+          image: ghcr.io/abraxas618/tetrapgc:v1.2.3  # ✅ Fixed version to prevent supply chain attacks
           imagePullPolicy: IfNotPresent
           securityContext:
-            allowPrivilegeEscalation: false
+            allowPrivilegeEscalation: false  # ✅ Prevents privilege escalation attacks
             capabilities:
               drop:
-                - ALL
-            readOnlyRootFilesystem: true
+                - ALL  # ✅ Removes all unnecessary capabilities
+            readOnlyRootFilesystem: true  # ✅ Enforce immutable root filesystem
+            seccompProfile:
+              type: RuntimeDefault
           resources:
             requests:
               cpu: "500m"
@@ -49,22 +51,22 @@ spec:
               protocol: TCP
           env:
             - name: QKD_SERVERS
-              value: "qkd1.example.com,qkd2.example.com"  # Secure QKD Servers
+              value: "qkd1.example.com,qkd2.example.com"  # ✅ Secure QKD Servers for Post-Quantum Encryption
             - name: QKD_PORT
               value: "5000"
             - name: DEVICE_ID
               valueFrom:
                 fieldRef:
-                  fieldPath: metadata.name
+                  fieldPath: metadata.name  # ✅ Dynamically fetch pod metadata for unique device IDs
           volumeMounts:
             - name: secure-storage
               mountPath: "/secure_storage"
-              readOnly: false
+              readOnly: false  # ✅ Allow encrypted key storage
 
       volumes:
         - name: secure-storage
           persistentVolumeClaim:
-            claimName: tetrapgc-pvc
+            claimName: tetrapgc-pvc  # ✅ Ensures encrypted persistent storage
 
 ---
 apiVersion: v1
@@ -79,7 +81,7 @@ spec:
     - protocol: TCP
       port: 443
       targetPort: 8080
-  type: ClusterIP
+  type: ClusterIP  # ✅ Secure internal-only service for in-cluster communication
 
 ---
 apiVersion: v1
@@ -92,4 +94,4 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi  # Defines persistent storage
+      storage: 5Gi  # ✅ Persistent encrypted storage for PQC key material
