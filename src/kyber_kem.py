@@ -2,28 +2,7 @@ import os
 import secrets
 from cffi import FFI
 from cryptography.hazmat.primitives.asymmetric import x25519
-from secure_hsm import store_key_in_hsm, retrieve_key_from_hsm
-import kyber_keygen
-import secrets
-
-# Example: Generating a nonce
-nonce = secrets.token_bytes(32)
-def generate_secure_kyber_keys():
-    """Generate a Kyber keypair and store it in HSM."""
-    pk, sk = kyber_keygen()
-    store_key_in_hsm(sk)  # Store Kyber Secret Key inside HSM
-    return pk, sk
-
-def ecc_keygen():
-    """Generate an X25519 key pair for hybrid key exchange."""
-    private_key = x25519.X25519PrivateKey.generate()
-    public_key = private_key.public_key()
-    return private_key, public_key
-
-def ecc_key_exchange(private_key, peer_public_key):
-    """Perform X25519 key exchange."""
-    shared_secret = private_key.exchange(peer_public_key)
-    return shared_secret
+from src.secure_hsm import store_key_in_hsm, retrieve_key_from_hsm  # ✅ Ensure correct path
 
 ffi = FFI()
 KYBER_LIB_PATH = os.getenv("KYBER_LIB_PATH", "/app/lib/libpqclean_kyber1024_clean.so")
@@ -57,6 +36,12 @@ def kyber_keygen():
         raise ValueError("Invalid key sizes generated")
 
     return bytes(pk), bytes(sk)
+
+def generate_secure_kyber_keys():
+    """Generate a Kyber keypair and store it in HSM."""
+    pk, sk = kyber_keygen()
+    store_key_in_hsm(sk)  # Store Kyber Secret Key inside HSM
+    return pk, sk
 
 def kyber_encapsulate(public_key):
     """Encapsulate a shared secret using Kyber-1024 with hybrid ECC."""
