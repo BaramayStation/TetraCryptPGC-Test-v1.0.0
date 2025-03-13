@@ -60,7 +60,7 @@ def hybrid_key_exchange():
     ecc_private_key, ecc_public_key = ecc_keygen()
 
     logging.info("[*] Generating Kyber Key Pair...")
-    kyber_public_key, kyber_private_key = generate_secure_kyber_keys()
+    kyber_public_key, _ = generate_secure_kyber_keys()  # Replace kyber_private_key with _ since it's not used
 
     logging.info("[*] Performing X25519 Key Exchange...")
     shared_secret = ecc_key_exchange(ecc_private_key, ecc_public_key)  # Self-exchange for test
