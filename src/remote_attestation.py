@@ -54,8 +54,12 @@ class SecureAttestation:
 
 # 🔹 Example Execution
 if __name__ == "__main__":
-    attestation_result = SecureAttestation.perform_attestation()
-    if attestation_result:
-        print("[🔐] Remote Attestation Successful. Device Integrity Verified.")
-    else:
+    try:
+        attestation_result = SecureAttestation.perform_attestation()
+        if attestation_result:
+            print("[🔐] Remote Attestation Successful. Device Integrity Verified.")
+        else:
+            print("[❌] Device Attestation Failed. Secure Communication Denied.")
+    except Exception as e:
+        logging.error(f"Error during attestation: {e}")
         print("[❌] Device Attestation Failed. Secure Communication Denied.")
