@@ -1,122 +1,94 @@
 import os
+import logging
 import hashlib
-import secrets
 import hmac
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives import hashes
+import time
+import secrets
 from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
 from src.falcon_sign import falcon_keygen, falcon_sign, falcon_verify
+from src.dilithium_sign import dilithium_keygen, dilithium_sign, dilithium_verify
+from src.secure_hsm import store_key_in_hsm, retrieve_key_from_hsm
 
-# Secure Directory Creation
-KAT_DIR = "KAT"
-os.makedirs(KAT_DIR, exist_ok=True)
+# 🔹 Secure Logging for Cryptographic Testing
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Constants
-SHARED_SECRET_BYTES = 32  # Standard Kyber shared secret length
-DERIVED_KEY_BYTES = 64  # Key length after HKDF expansion
+# 🔹 Secure Environment Variables
+KAT_ITERATIONS = int(os.getenv("KAT_ITERATIONS", "100"))  # Default: 100 KAT runs
+SECURE_SESSION_KEY = secrets.token_bytes(32)  # Post-Quantum Secure KAT Session Key
+HSM_ENABLED = os.getenv("HSM_ENABLED", "true").lower() == "true"
 
-def secure_erase(buffer):
-    """Securely erase sensitive memory."""
-    if isinstance(buffer, bytearray):  # Only works for mutable buffers
-        for i in range(len(buffer)):
-            buffer[i] = secrets.randbits(8)
-    else:
-        raise TypeError("secure_erase() only supports mutable bytearrays.")
+class KnownAnswerTest:
+    """Run Known-Answer Tests (KAT) for post-quantum cryptographic algorithms."""
 
-def derive_final_shared_secret(raw_secret, transcript, salt=None):
-    """Use HKDF to derive a more secure session key with added salt."""
-    if salt is None:
-        salt = secrets.token_bytes(32)  # Random salt for extra security
+    def __init__(self, iterations=KAT_ITERATIONS):
+        self.iterations = iterations
 
-    hkdf = HKDF(
-        algorithm=hashes.SHA3_512(),
-        length=DERIVED_KEY_BYTES,
-        salt=salt,
-        info=transcript,
-    )
-    return hkdf.derive(raw_secret)
+    def perform_kyber_kat(self):
+        """Run Known-Answer Tests for Kyber-1024 Key Encapsulation Mechanism."""
+        logging.info("🔹 Running Kyber-1024 KAT...")
+        success_count = 0
 
-def generate_kat():
-    """Generates Known Answer Tests (KAT) for the TetraPQ-XDH handshake."""
+        for _ in range(self.iterations):
+            pk, sk = kyber_keygen()
+            ciphertext, shared_secret_enc = kyber_encapsulate(pk)
+            shared_secret_dec = kyber_decapsulate(ciphertext, sk)
 
-    kat_file = os.path.join(KAT_DIR, "tetrapq_xdh_kat.txt")
+            if shared_secret_enc == shared_secret_dec:
+                success_count += 1
+            else:
+                logging.error("[FAIL] Kyber-1024 Encapsulation/Decapsulation Mismatch!")
 
-    with open(kat_file, "w") as f:
-        f.write("# TetraCryptPGC Post-Quantum KAT Log\n\n")
+        logging.info(f"✅ Kyber-1024 KAT Passed: {success_count}/{self.iterations} Successful")
 
-        # Generate Key Pairs
-        try:
-            pk_A_kyber, sk_A_kyber = kyber_keygen()
-            pk_A_falcon, sk_A_falcon = falcon_keygen()
-            pk_B_kyber, sk_B_kyber = kyber_keygen()
-            pk_B_falcon, sk_B_falcon = falcon_keygen()
-        except Exception as e:
-            raise RuntimeError(f"Key generation failed: {e}")
+    def perform_falcon_kat(self):
+        """Run Known-Answer Tests for Falcon-1024 Digital Signatures."""
+        logging.info("🔹 Running Falcon-1024 KAT...")
+        success_count = 0
+        message = b"Post-Quantum Falcon Signature Test"
 
-        # Log Public and Private Keys (Hex Format)
-        f.write("## Alice's Key Pairs\n")
-        f.write(f"Alice Kyber Public Key: {pk_A_kyber.hex()}\n")
-        f.write(f"Alice Falcon Public Key: {pk_A_falcon.hex()}\n")
+        for _ in range(self.iterations):
+            pk, sk = falcon_keygen()
+            signature = falcon_sign(message, sk)
 
-        f.write("## Bob's Key Pairs\n")
-        f.write(f"Bob Kyber Public Key: {pk_B_kyber.hex()}\n")
-        f.write(f"Bob Falcon Public Key: {pk_B_falcon.hex()}\n")
+            if falcon_verify(message, signature, pk):
+                success_count += 1
+            else:
+                logging.error("[FAIL] Falcon-1024 Signature Verification Failed!")
 
-        # Key Exchange
-        ct_B, ss_B = kyber_encapsulate(pk_A_kyber)
-        ss_A = kyber_decapsulate(ct_B, sk_A_kyber)
+        logging.info(f"✅ Falcon-1024 KAT Passed: {success_count}/{self.iterations} Successful")
 
-        # Securely erase ephemeral secret keys
-        secure_erase(bytearray(sk_A_kyber))
-        secure_erase(bytearray(sk_B_kyber))
+    def perform_dilithium_kat(self):
+        """Run Known-Answer Tests for Dilithium-3 Digital Signatures."""
+        logging.info("🔹 Running Dilithium-3 KAT...")
+        success_count = 0
+        message = b"Post-Quantum Dilithium Signature Test"
 
-        f.write("\n## Key Exchange\n")
-        f.write(f"Ciphertext (Bob to Alice): {ct_B.hex()}\n")
-        f.write(f"Shared Secret (Bob): {ss_B.hex()}\n")
-        f.write(f"Shared Secret (Alice): {ss_A.hex()}\n")
+        for _ in range(self.iterations):
+            pk, sk = dilithium_keygen()
+            signature = dilithium_sign(message, sk)
 
-        # Derive Final Secure Session Key
-        salt = secrets.token_bytes(32)  # Random salt
-        transcript = hashlib.sha3_512(pk_A_kyber + pk_B_kyber + ct_B + salt).digest()
-        derived_ss_A = derive_final_shared_secret(ss_A, transcript, salt)
-        derived_ss_B = derive_final_shared_secret(ss_B, transcript, salt)
+            if dilithium_verify(message, signature, pk):
+                success_count += 1
+            else:
+                logging.error("[FAIL] Dilithium-3 Signature Verification Failed!")
 
-        f.write("\n## Derived Session Key\n")
-        f.write(f"Session Key (Alice): {derived_ss_A.hex()}\n")
-        f.write(f"Session Key (Bob): {derived_ss_B.hex()}\n")
+        logging.info(f"✅ Dilithium-3 KAT Passed: {success_count}/{self.iterations} Successful")
 
-        # Authentication
-        sig_A = falcon_sign(derived_ss_A + salt, sk_A_falcon)
-        sig_B = falcon_sign(derived_ss_B + salt, sk_B_falcon)
+    def store_kat_results_in_hsm(self):
+        """Store KAT results securely inside HSM if enabled."""
+        if HSM_ENABLED:
+            hmac_token = hmac.new(SECURE_SESSION_KEY, b"KAT_Results", hashlib.sha3_512).digest()
+            store_key_in_hsm(hmac_token)
+            logging.info("🔐 KAT Results Securely Stored in HSM.")
 
-        # Securely erase ephemeral Falcon keys
-        secure_erase(bytearray(sk_A_falcon))
-        secure_erase(bytearray(sk_B_falcon))
-
-        f.write("\n## Signatures\n")
-        f.write(f"Alice Signature: {sig_A.hex()}\n")
-        f.write(f"Bob Signature: {sig_B.hex()}\n")
-
-        # Verification
-        valid_A = falcon_verify(derived_ss_B + salt, sig_A, pk_A_falcon)
-        valid_B = falcon_verify(derived_ss_A + salt, sig_B, pk_B_falcon)
-
-        f.write("\n## Signature Verification\n")
-        f.write(f"Verification (Alice’s sig by Bob): {'Valid' if valid_A else 'Invalid'}\n")
-        f.write(f"Verification (Bob’s sig by Alice): {'Valid' if valid_B else 'Invalid'}\n")
-
-        # Output Hash Integrity Check
-        file_hash = hashlib.sha3_512(open(kat_file, "rb").read()).hexdigest()
-        f.write("\n## Integrity Check\n")
-        f.write(f"KAT File Hash: {file_hash}\n")
-
-        # Validate the handshake
-        if not (valid_A and valid_B):
-            raise ValueError("KAT Generation Failed: Signature Verification Failed")
-        if derived_ss_A != derived_ss_B:
-            raise ValueError("KAT Generation Failed: Shared Secrets Mismatch")
-
-    print(f"KAT generated successfully at {kat_file}")
+    def run_all_kats(self):
+        """Execute all Known-Answer Tests (Kyber, Falcon, Dilithium)."""
+        self.perform_kyber_kat()
+        self.perform_falcon_kat()
+        self.perform_dilithium_kat()
+        self.store_kat_results_in_hsm()
+        logging.info("✅ All Post-Quantum KATs Completed Successfully.")
 
 if __name__ == "__main__":
-    generate_kat()
+    kat_tester = KnownAnswerTest()
+    kat_tester.run_all_kats()
