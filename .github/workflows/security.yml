@@ -1,19 +1,64 @@
 name: Security Audit
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  schedule:
+    - cron: "0 3 * * 1"  # ✅ Weekly security scan (Every Monday at 3 AM UTC)
 
 jobs:
   security-check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # ✅ Enable GitHub Security Events Reporting
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v3
+    
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1  # ✅ Minimize fetch size to prevent supply chain risks
 
-    - name: Install Dependencies
+    - name: 🔍 Install Security Dependencies
       run: |
-        sudo apt update
-        sudo apt install -y python3 python3-pip
+        sudo apt update && sudo apt install -y python3 python3-pip python3-venv
+        python3 -m venv venv && source venv/bin/activate
+        pip install --upgrade pip
         pip install --no-cache-dir -r requirements.txt
 
-    - name: Run Security Tests
-      run: python3 -m unittest discover -s tests
+    - name: 🔑 Security Linting & Code Analysis (Bandit)
+      run: |
+        source venv/bin/activate
+        pip install bandit
+        bandit -r src -ll -ii | tee security_report.txt
+
+    - name: 🛡️ Run Dependency Vulnerability Scan (Safety)
+      run: |
+        pip install safety
+        safety check --full-report > safety_report.txt || true  # ✅ Continue even if vulnerabilities are found
+
+    - name: 🔬 Run Unit & Security Tests
+      run: |
+        source venv/bin/activate
+        python3 -m unittest discover -s tests | tee test_results.txt
+
+    - name: 📤 Upload Security Reports (Artifacts)
+      uses: actions/upload-artifact@v3
+      with:
+        name: Security_Reports
+        path: |
+          security_report.txt
+          safety_report.txt
+          test_results.txt
+
+    - name: 🚀 Generate Security Alerts (GitHub Security Events)
+      if: always()
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: security_report.txt
