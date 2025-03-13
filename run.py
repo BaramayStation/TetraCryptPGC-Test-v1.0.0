@@ -55,7 +55,7 @@ class PQXDHHandshake:
 
         # Step 1: Generate X25519 Key Pairs
         alice_xdh_priv, _ = self.generate_x25519_keys()
-        bob_xdh_priv, bob_xdh_pub = self.generate_x25519_keys()
+        _, bob_xdh_pub = self.generate_x25519_keys()  # Replaced unused variable bob_xdh_priv with _
 
         # Step 2: Execute Kyber-1024 KEM
         pk_kyber, sk_kyber, _, shared_secret_kyber = self.perform_kyber_kem()
