@@ -1,20 +1,25 @@
 # ✅ Core Dependencies
-cffi>=1.15.0      # Foreign Function Interface for C bindings
-cryptography>=41.0.0  # Essential for PQC & ECC
+cffi>=1.15.1      # Foreign Function Interface for C bindings
+cryptography>=42.0.0  # Essential for PQC & ECC with FIPS compliance
 
-# ✅ Post-Quantum Cryptography Libraries
-pycryptodome>=3.18.0  # Secure encryption (AES, RSA, SHA3, etc.)
-liboqs-python  # Bindings for Open Quantum Safe (Kyber, Falcon, Dilithium)
+# ✅ Post-Quantum Cryptography Libraries (Kyber, Falcon, Dilithium, SLH-DSA)
+pycryptodome>=3.21.0  # Secure encryption (AES, RSA, SHA3, etc.)
+liboqs-python>=0.7.2  # Bindings for Open Quantum Safe (Kyber, Falcon, Dilithium)
+slh-dsa  # SLH-DSA (XMSS + WOTS+ based signature scheme)
 
 # ✅ Secure Key Derivation & Authentication
-hkdf>=0.0.3  # Hybrid Key Derivation for PQC-ECC transitions
+hkdf>=0.1.0  # Hybrid Key Derivation for PQC-ECC transitions
 requests>=2.31.0  # Secure API interactions for QKD & remote attestation
-pycparser  # C parsing for security analysis
+pycparser>=2.21  # C parsing for security analysis
 
 # ✅ Hardware-Based Security Enhancements (TPM, SGX, TrustZone)
-tpm2-pytss  # Trusted Platform Module (TPM) Integration
-intel-sgx-ra  # Intel SGX Remote Attestation
+tpm2-pytss>=1.2.0  # Trusted Platform Module (TPM) Integration
+intel-sgx-ra>=0.5.0  # Intel SGX Remote Attestation
+
+# ✅ Quantum Key Distribution (QKD) Support
+qiskit>=1.0.0  # IBM QKD Framework for Quantum Cryptography
+qkd-protocols>=0.3.1  # Standardized QKD protocols
 
 # ✅ Homomorphic Encryption (Optional Future Support)
-seal-python  # Microsoft SEAL for Homomorphic Encryption
-tenseal  # CKKS encryption for privacy-preserving AI
+seal-python>=4.0.0  # Microsoft SEAL for Homomorphic Encryption
+tenseal>=0.3.10  # CKKS encryption for privacy-preserving AI
