@@ -112,7 +112,7 @@ def hybrid_key_exchange():
     shared_secret_ecc = derive_ecc_shared_secret(ecc_private_key, ecc_public_key)
 
     logging.info("[*] Performing Kyber Encapsulation...")
-    kyber_ciphertext, shared_secret_kyber = kyber_encapsulate(kyber_public_key)
+    _, shared_secret_kyber = kyber_encapsulate(kyber_public_key)  # Replace unused variable with _
 
     logging.info("[*] Hybrid Key Exchange Completed.")
 
