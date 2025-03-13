@@ -24,10 +24,10 @@ class HybridKeyExchange:
         logging.info("[FALLBACK] Initiating Kyber-1024 key exchange...")
 
         # Generate a Kyber key pair
-        pk, sk = kyber_keygen()
+        pk, _ = kyber_keygen()  # Replace sk with _ since it's not used
 
         # Encapsulate key exchange
-        ciphertext, shared_secret = kyber_encapsulate(pk)
+        _, shared_secret = kyber_encapsulate(pk)  # Replace ciphertext with _ since it's not used
 
         logging.info("[FALLBACK SUCCESS] Kyber-1024 shared secret established.")
         return shared_secret
