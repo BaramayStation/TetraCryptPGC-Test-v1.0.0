@@ -1,69 +1,55 @@
 import unittest
 import logging
-from src.pq_xdh_handshake_mutual import pq_xdh_handshake_mutual
-from src.kyber_kem import kyber_keygen, kyber_encapsulate, kyber_decapsulate
-from src.falcon_sign import falcon_keygen, falcon_sign, falcon_verify
-from src.dilithium_sign import dilithium_keygen, dilithium_sign, dilithium_verify
+from src.hybrid_key_exchange import HybridKeyExchange
+from src.ml_kem import ML_KEM  # ✅ ML-KEM-1024 (FIPS 206)
+from src.slh_dsa import SLHDSA  # ✅ SLH-DSA (FIPS 205)
+from src.exceptions import TetraError  # ✅ Custom Exception Handling
 
-# 🔹 Secure Logging Configuration
+# ✅ Secure Logging Configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-class TestPQXDH(unittest.TestCase):
-    def test_kyber_key_generation(self):
-        """✅ Test Kyber key pair generation."""
-        pk, sk = kyber_keygen()
-        self.assertEqual(len(pk), 1568, "❌ Kyber public key size mismatch")
-        self.assertEqual(len(sk), 3168, "❌ Kyber secret key size mismatch")
-        logging.info("✅ Kyber Key Generation Test Passed.")
+class TestHybridKeyExchange(unittest.TestCase):
 
-    def test_falcon_key_generation(self):
-        """✅ Test Falcon key pair generation."""
-        pk, sk = falcon_keygen()
-        self.assertEqual(len(pk), 1792, "❌ Falcon public key size mismatch")
-        self.assertEqual(len(sk), 2304, "❌ Falcon secret key size mismatch")
-        logging.info("✅ Falcon Key Generation Test Passed.")
+    def test_ml_kem_key_generation(self):
+        """✅ Test ML-KEM-1024 key pair generation."""
+        pk, sk = ML_KEM.generate_keypair()
 
-    def test_dilithium_key_generation(self):
-        """✅ Test Dilithium key pair generation."""
-        pk, sk = dilithium_keygen()
-        self.assertGreater(len(pk), 0, "❌ Dilithium public key size mismatch")
-        self.assertGreater(len(sk), 0, "❌ Dilithium secret key size mismatch")
-        logging.info("✅ Dilithium Key Generation Test Passed.")
+        # ✅ Ensure correct key sizes for ML-KEM-1024
+        self.assertEqual(len(pk), 1568, "❌ ML-KEM-1024 public key size mismatch")
+        self.assertEqual(len(sk), 3168, "❌ ML-KEM-1024 secret key size mismatch")
+        logging.info("✅ ML-KEM-1024 Key Generation Test Passed.")
 
-    def test_kyber_encapsulation_decapsulation(self):
-        """✅ Test Kyber encapsulation and decapsulation."""
-        pk, sk = kyber_keygen()
-        ciphertext, shared_secret_enc = kyber_encapsulate(pk)
-        shared_secret_dec = kyber_decapsulate(ciphertext, sk)
+    def test_ml_kem_encapsulation_decapsulation(self):
+        """✅ Test ML-KEM-1024 encapsulation and decapsulation."""
+        pk, sk = ML_KEM.generate_keypair()
+        ciphertext, shared_secret_enc = ML_KEM.encapsulate(pk)
+        shared_secret_dec = ML_KEM.decapsulate(ciphertext, sk)
 
-        self.assertEqual(shared_secret_enc, shared_secret_dec, "❌ Kyber shared secrets do not match")
-        logging.info("✅ Kyber Encapsulation & Decapsulation Test Passed.")
+        self.assertEqual(shared_secret_enc, shared_secret_dec, "❌ ML-KEM shared secrets do not match")
+        logging.info("✅ ML-KEM-1024 Encapsulation & Decapsulation Test Passed.")
 
-    def test_falcon_signature_verification(self):
-        """✅ Test Falcon signing and verification."""
-        pk, sk = falcon_keygen()
+    def test_slh_dsa_signature_verification(self):
+        """✅ Test SLH-DSA signing and verification."""
+        pk, sk = SLHDSA.generate_keypair()
         message = b"Post-Quantum Test Message"
-        signature = falcon_sign(message, sk)
+        signature = SLHDSA.sign_message(message, sk)
 
-        self.assertTrue(falcon_verify(message, signature, pk), "❌ Falcon signature verification failed")
-        logging.info("✅ Falcon Signature Verification Test Passed.")
+        self.assertTrue(SLHDSA.verify_signature(message, signature, pk), "❌ SLH-DSA signature verification failed")
+        logging.info("✅ SLH-DSA Signature Verification Test Passed.")
 
-    def test_dilithium_signature_verification(self):
-        """✅ Test Dilithium signing and verification."""
-        pk, sk = dilithium_keygen()
-        message = b"Post-Quantum Test Message"
-        signature = dilithium_sign(message, sk)
+    def test_full_hybrid_handshake(self):
+        """✅ Test the full hybrid post-quantum key exchange (ML-KEM-1024 + SLH-DSA)."""
+        shared_secret, slh_dsa_pub, signature = HybridKeyExchange.hybrid_handshake()
 
-        self.assertTrue(dilithium_verify(message, signature, pk), "❌ Dilithium signature verification failed")
-        logging.info("✅ Dilithium Signature Verification Test Passed.")
+        # ✅ Ensure the shared secret is valid
+        self.assertIsInstance(shared_secret, bytes)
+        self.assertEqual(len(shared_secret), 64, "❌ Hybrid shared secret length mismatch!")  # ✅ 512-bit
 
-    def test_full_handshake(self):
-        """✅ Test the full post-quantum XDH handshake."""
-        valid, shared_secret_alice, shared_secret_bob = pq_xdh_handshake_mutual()
+        # ✅ Validate SLH-DSA signature
+        valid_signature = SLHDSA.verify_signature(shared_secret, signature, slh_dsa_pub)
+        self.assertTrue(valid_signature, "❌ SLH-DSA Signature Verification Failed!")
 
-        self.assertTrue(valid, "❌ PQXDH Handshake Authentication Failed!")
-        self.assertEqual(shared_secret_alice, shared_secret_bob, "❌ PQXDH Handshake shared secrets do not match!")
-        logging.info("✅ PQXDH Handshake Test Passed.")
+        logging.info("✅ Full Hybrid Key Exchange Test Passed.")
 
 if __name__ == "__main__":
     unittest.main()
