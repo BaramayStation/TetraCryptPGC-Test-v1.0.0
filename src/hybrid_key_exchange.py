@@ -3,8 +3,8 @@ import logging
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
-from ml_kem import ML_KEM  # ✅ ML-KEM-1024 (FIPS 206)
-from slh_dsa import SLHDSA  # ✅ SLH-DSA (FIPS 205)
+from src.ml_kem import ML_KEM  # ✅ ML-KEM-1024 (FIPS 206)
+from src.slh_dsa import SLHDSA  # ✅ SLH-DSA (FIPS 205)
 
 # ✅ Secure Logging Configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -20,26 +20,26 @@ class HybridKeyExchange:
         return private_key, public_key
 
     @staticmethod
-    def perform_ml_kem():
-        """Execute ML-KEM-1024 (FIPS 206) Key Encapsulation Mechanism."""
+    def perform_mlkem_kem():
+        """Execute ML-KEM-1024 Key Encapsulation Mechanism."""
         logging.info("🔹 Generating ML-KEM-1024 Key Pair...")
-        pk_ml_kem, sk_ml_kem = ML_KEM.generate_keypair()
+        pk_mlkem, sk_mlkem = ML_KEM.generate_keypair()
 
         logging.info("🔹 Encapsulating Shared Secret with ML-KEM-1024...")
-        ciphertext, shared_secret_enc = ML_KEM.encapsulate(pk_ml_kem)
+        ciphertext, shared_secret_enc = ML_KEM.encapsulate(pk_mlkem)
 
-        return pk_ml_kem, sk_ml_kem, ciphertext, shared_secret_enc
+        return pk_mlkem, sk_mlkem, ciphertext, shared_secret_enc
 
     @staticmethod
-    def derive_shared_secret(x25519_secret, ml_kem_secret):
-        """Derive a final shared secret using HKDF (SHA3-512)."""
+    def derive_shared_secret(x25519_secret, mlkem_secret):
+        """Derive a final shared secret using HKDF."""
         hkdf = HKDF(
             algorithm=hashes.SHA3_512(),
             length=64,
             salt=None,
             info=b"TetraCrypt Hybrid Key Exchange"
         )
-        return hkdf.derive(x25519_secret + ml_kem_secret)
+        return hkdf.derive(x25519_secret + mlkem_secret)
 
     @staticmethod
     def hybrid_handshake():
@@ -51,11 +51,11 @@ class HybridKeyExchange:
         _, bob_xdh_pub = HybridKeyExchange.generate_x25519_keys()  # Bob's private key is not needed
 
         # ✅ Step 2: Execute ML-KEM-1024 KEM
-        pk_ml_kem, sk_ml_kem, ciphertext, shared_secret_ml_kem = HybridKeyExchange.perform_ml_kem()
+        pk_mlkem, sk_mlkem, ciphertext, shared_secret_mlkem = HybridKeyExchange.perform_mlkem_kem()
 
         # ✅ Step 3: Derive Shared Secret Using HKDF
         shared_secret_xdh = alice_xdh_priv.exchange(bob_xdh_pub)
-        final_shared_secret = HybridKeyExchange.derive_shared_secret(shared_secret_xdh, shared_secret_ml_kem)
+        final_shared_secret = HybridKeyExchange.derive_shared_secret(shared_secret_xdh, shared_secret_mlkem)
 
         # ✅ Step 4: SLH-DSA Mutual Authentication
         logging.info("🔹 Generating SLH-DSA Key Pair...")
